@@ -83,10 +83,10 @@ Both methods extend `MauiAppBuilder`.
 
 #### 3. Blazor Hybrid: Add Script Tag
 
-Blazor Hybrid apps also need a script tag in `wwwroot/index.html` (the `chobitsu.js` file is auto-copied to `wwwroot/js/` during Debug builds by the NuGet package):
+Blazor Hybrid apps also need a script tag in `wwwroot/index.html` (the `chobitsu.js` file is delivered automatically by the NuGet package as a static web asset):
 
 ```html
-<script src="js/chobitsu.js"></script>  <!-- Add before </head> -->
+<script src="chobitsu.js"></script>  <!-- Add before </body> -->
 ```
 
 #### 4. Install CLI Tools

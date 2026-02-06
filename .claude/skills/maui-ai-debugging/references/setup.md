@@ -59,13 +59,13 @@ builder.AddMauiBlazorDevFlowTools(options => { options.Port = 9222; }); // Blazo
 ## 4. Blazor Hybrid: Add Script Tag to index.html
 
 **This step is required for Blazor Hybrid apps.** The `Redth.MauiDevFlow.Blazor` NuGet package
-automatically copies `chobitsu.js` to your `wwwroot/js/` folder during Debug builds, but you
-must add the script tag to `wwwroot/index.html` yourself.
+delivers `chobitsu.js` automatically as a static web asset — no file copying or manual downloads
+needed. You just need to add one script tag to `wwwroot/index.html`.
 
-Add this line before `</head>`:
+Add this line before `</body>`:
 
 ```html
-<script src="js/chobitsu.js"></script>
+<script src="chobitsu.js"></script>
 ```
 
 Example:
@@ -77,11 +77,11 @@ Example:
     <title>My App</title>
     <base href="/" />
     <link rel="stylesheet" href="css/app.css" />
-    <script src="js/chobitsu.js"></script>  <!-- ADD THIS LINE -->
 </head>
 <body>
     <div id="app"></div>
     <script src="_framework/blazor.webview.js"></script>
+    <script src="chobitsu.js"></script>  <!-- ADD THIS LINE -->
 </body>
 </html>
 ```
@@ -97,14 +97,15 @@ MAUI's `app://` URL scheme blocks dynamic `<script>` tag loading, and `chobitsu.
 The library checks at runtime and logs a clear error message:
 ```
 [BlazorDevFlow] ❌ Missing required script tag in wwwroot/index.html.
-[BlazorDevFlow] Add this before </head>:  <script src="js/chobitsu.js"></script>
+[BlazorDevFlow] Add this before </body>:  <script src="chobitsu.js"></script>
 ```
 
-### The chobitsu.js file in wwwroot/js/
+### How the file gets there
 
-- **Auto-managed:** The NuGet `.targets` file copies it during Debug builds and removes it on Clean.
-- **Git:** Add `**/wwwroot/js/chobitsu.js` to your `.gitignore` since it's auto-generated.
-- **Release builds:** The file is NOT copied in Release configuration (MauiDevFlow is dev-only).
+The `chobitsu.js` file is included in the NuGet package as a static web asset. It is
+automatically available at the root of your app's `wwwroot/` — no `.targets` file copying,
+no manual downloads. It works in both Debug and Release builds (though MauiDevFlow itself
+should only be referenced in Debug configurations).
 
 ## 5. Mac Catalyst: Entitlements
 
@@ -191,7 +192,6 @@ For an AI agent setting up MauiDevFlow in a new project:
 2. [ ] `Redth.MauiDevFlow.Blazor` NuGet package added (Blazor Hybrid only)
 3. [ ] `builder.AddMauiDevFlowAgent(...)` in MauiProgram.cs inside `#if DEBUG`
 4. [ ] `builder.AddMauiBlazorDevFlowTools(...)` in MauiProgram.cs (Blazor Hybrid only)
-5. [ ] `<script src="js/chobitsu.js"></script>` in index.html (Blazor Hybrid only)
+5. [ ] `<script src="chobitsu.js"></script>` in index.html (Blazor Hybrid only)
 6. [ ] Mac Catalyst entitlements include `network.server` (Mac Catalyst only)
 7. [ ] `adb reverse` port forwarding (Android only)
-8. [ ] `**/wwwroot/js/chobitsu.js` in .gitignore (Blazor Hybrid only)

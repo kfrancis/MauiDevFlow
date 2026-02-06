@@ -7,19 +7,6 @@
     <SingleProject>true</SingleProject>
     <IsPackable>true</IsPackable>
 
-    <!--
-      This library has no .razor files and no static web assets of its own.
-      The WebView dependency provides blazor.webview.js / blazor.modules.json,
-      but consumers already get those from their own WebView reference.
-      These properties (documented in Microsoft.NET.Sdk.StaticWebAssets.Pack.targets)
-      disable the auto-generated .props files that would register duplicate assets.
-    -->
-    <DisableStaticWebAssetsBuildPropsFileGeneration>true</DisableStaticWebAssetsBuildPropsFileGeneration>
-    <DisableStaticWebAssetEndpointsBuildPropsFileGeneration>true</DisableStaticWebAssetEndpointsBuildPropsFileGeneration>
-    <StaticWebAssetsDisableProjectBuildPropsFileGeneration>true</StaticWebAssetsDisableProjectBuildPropsFileGeneration>
-    <StaticWebAssetsDisableProjectBuildMultiTargetingPropsFileGeneration>true</StaticWebAssetsDisableProjectBuildMultiTargetingPropsFileGeneration>
-    <StaticWebAssetsDisableProjectBuildTransitivePropsFileGeneration>true</StaticWebAssetsDisableProjectBuildTransitivePropsFileGeneration>
-
     <!-- NuGet Package Metadata -->
     <PackageId>Redth.MauiDevFlow.Blazor</PackageId>
     <Description>Enable browser developer tools and Playwright MCP automation for .NET MAUI Blazor Hybrid apps. Connects Chrome DevTools Protocol to BlazorWebView via Chobitsu.</Description>
@@ -32,34 +19,44 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" PrivateAssets="all" />
   </ItemGroup>
 
-  <!-- Embed chobitsu.js as an embedded resource (fallback for injection) -->
-  <ItemGroup>
-    <EmbeddedResource Include="Resources\chobitsu.js" LogicalName="MauiDevFlow.Blazor.chobitsu.js" />
-  </ItemGroup>
-
   <!-- Embed JS/HTML scripts as resources to avoid inline strings in C# -->
   <ItemGroup>
     <EmbeddedResource Include="Resources\Scripts\*.js" />
     <EmbeddedResource Include="Resources\Scripts\*.html" />
   </ItemGroup>
 
-  <!-- Pack .targets and chobitsu.js content into NuGet so consuming apps get wwwroot/js/chobitsu.js automatically -->
-  <ItemGroup>
-    <None Include="build\Redth.MauiDevFlow.Blazor.targets" Pack="true" PackagePath="build\" />
-    <None Include="content\wwwroot\js\chobitsu.js" Pack="true" PackagePath="content\wwwroot\js\" />
-  </ItemGroup>
-
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-  <!-- Exclude all static web assets from being packed as content files.
-       The only static web assets in this project come from the WebView dependency;
-       consumers get those from their own reference. Uses the SDK's own exclusion mechanism
-       (see _PackStaticWebAssetCandidates in Microsoft.NET.Sdk.StaticWebAssets.Pack.targets). -->
-  <Target Name="_ExcludeAllStaticWebAssetsFromPack" BeforeTargets="GenerateStaticWebAssetsPackFiles">
+  <!-- Remove WebView's _framework/ assets from our static web assets manifest.
+       Without this, consumers get duplicate blazor.webview.js — one from our library
+       (transitive via WebView dependency) and one from their own WebView reference.
+       We only want our own wwwroot assets (chobitsu.js and the JS initializer).
+       Runs after assets are resolved but before manifests are written. -->
+  <Target Name="_RemoveTransitiveWebViewAssets"
+          AfterTargets="ResolveBuildStaticWebAssets"
+          BeforeTargets="GenerateStaticWebAssetsManifest">
     <ItemGroup>
-      <_StaticWebAssetExcludedFromPack Include="@(StaticWebAsset)" />
+      <StaticWebAsset Remove="@(StaticWebAsset)"
+        Condition="$([System.String]::Copy('%(RelativePath)').StartsWith('_framework/'))" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="_RemoveTransitiveWebViewPublishAssets"
+          AfterTargets="ResolveAllPublishStaticWebAssets"
+          BeforeTargets="GenerateStaticWebAssetsPublishManifest">
+    <ItemGroup>
+      <StaticWebAsset Remove="@(StaticWebAsset)"
+        Condition="$([System.String]::Copy('%(RelativePath)').StartsWith('_framework/'))" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Also exclude WebView assets from NuGet pack — only pack our own assets. -->
+  <Target Name="_ExcludeWebViewStaticWebAssetsFromPack" BeforeTargets="GenerateStaticWebAssetsPackFiles">
+    <ItemGroup>
+      <_StaticWebAssetExcludedFromPack Include="@(StaticWebAsset)"
+        Condition="$([System.String]::Copy('%(RelativePath)').StartsWith('_framework/'))" />
     </ItemGroup>
   </Target>
 

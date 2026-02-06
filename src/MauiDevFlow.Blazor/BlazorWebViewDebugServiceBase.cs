@@ -139,15 +139,15 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
                 if (hasTag?.ToString() == "missing")
                 {
                     Log("[BlazorDevFlow] ❌ Missing required script tag in wwwroot/index.html.");
-                    Log("[BlazorDevFlow] Add this before </head>:  <script src=\"js/chobitsu.js\"></script>");
-                    Log("[BlazorDevFlow] The chobitsu.js file is auto-copied to wwwroot/js/ by the NuGet package during Debug builds.");
+                    Log("[BlazorDevFlow] Add this before </body>:  <script src=\"chobitsu.js\"></script>");
+                    Log("[BlazorDevFlow] The chobitsu.js file is delivered automatically by the Redth.MauiDevFlow.Blazor NuGet package as a static web asset.");
                     return;
                 }
             }
 
             if (i == 29)
             {
-                Log("[BlazorDevFlow] Chobitsu not loaded after 15s — the script tag exists but chobitsu.js may be missing from wwwroot/js/.");
+                Log("[BlazorDevFlow] Chobitsu not loaded after 15s — the script tag exists but chobitsu.js may not be loading correctly.");
                 return;
             }
             await Task.Delay(500);

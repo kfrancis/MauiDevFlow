@@ -32,7 +32,7 @@ Blazor script tag, Mac Catalyst entitlements, and Android port forwarding, see
 **Quick summary:**
 1. Add NuGet packages (`Redth.MauiDevFlow.Agent`, and `Redth.MauiDevFlow.Blazor` for Blazor Hybrid)
 2. Register in `MauiProgram.cs` inside `#if DEBUG`
-3. For Blazor Hybrid: add `<script src="js/chobitsu.js"></script>` to `wwwroot/index.html`
+3. For Blazor Hybrid: add `<script src="chobitsu.js"></script>` to `wwwroot/index.html`
 4. For Mac Catalyst: ensure `network.server` entitlement
 5. For Android: run `adb reverse` for port forwarding
 
@@ -132,7 +132,39 @@ maui-devflow cdp Runtime evaluate "document.styleSheets.length"
 ```
 This enables verifying Blazor dark mode, layout, and styling without relying solely on screenshots.
 
-### 5. Fix and Rebuild
+### 5. Reading Application Logs
+
+MauiDevFlow automatically captures all `Microsoft.Extensions.Logging` (`ILogger`) output
+to rotating log files on the device. This means any `ILogger<T>` calls in the app's code
+(or in libraries) are available for remote retrieval — invaluable for debugging.
+
+```bash
+maui-devflow MAUI logs                   # fetch 100 most recent log entries
+maui-devflow MAUI logs --limit 50        # fetch 50 entries
+maui-devflow MAUI logs --skip 100        # skip newest 100, get next batch
+```
+
+Output is color-coded by level (red=Critical/Error, yellow=Warning, green=Info, gray=Debug/Trace).
+Each entry includes timestamp, log level, category (logger name), and message.
+
+**Debugging workflow with logs:**
+1. Reproduce the issue (tap a button, navigate, etc.)
+2. `maui-devflow MAUI logs --limit 20` — check recent log entries for errors or warnings
+3. If needed, add temporary `ILogger` calls to the app code for more detail:
+   ```csharp
+   _logger.LogInformation("Button tapped, item count: {Count}", items.Count);
+   _logger.LogWarning("Unexpected state: {State}", currentState);
+   ```
+4. Rebuild, redeploy, reproduce, and fetch logs again
+
+**Log configuration** (in `AddMauiDevFlowAgent` options):
+- `EnableFileLogging` (default: `true`) — toggle file logging
+- `MaxLogFileSize` (default: 1 MB) — max size per log file before rotation
+- `MaxLogFiles` (default: 5) — number of rotated files to keep
+
+The agent also exposes logs via REST: `GET /api/logs?limit=N&skip=N` returns a JSON array.
+
+### 6. Fix and Rebuild
 
 After identifying issues, edit source, rebuild (`dotnet build`), and redeploy.
 The full cycle: edit code → `dotnet build -t:Run ...` → `maui-devflow MAUI status` → inspect.
@@ -220,3 +252,6 @@ For detailed platform-specific setup, simulator/emulator management, and trouble
 - After Android deploy, always run `adb reverse` for port forwarding.
 - **Property inspection** is more reliable than screenshots for verifying exact runtime values
   (colors, sizes, visibility). Use `tree` → `property` workflow for systematic debugging.
+- **Application logs** are captured automatically from `ILogger`. Use `MAUI logs` to fetch
+  them remotely. Add temporary `ILogger` calls for extra debug output, then fetch logs after
+  reproducing issues. This is often faster than attaching a debugger.
