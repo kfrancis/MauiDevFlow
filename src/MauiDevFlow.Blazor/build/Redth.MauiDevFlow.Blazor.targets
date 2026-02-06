@@ -1,7 +1,7 @@
 <Project>
   <!-- 
     Auto-include chobitsu.js into consuming app's wwwroot/js/ at build time.
-    This file is imported automatically when the MauiDevFlow.Blazor NuGet package is referenced.
+    This file is imported automatically when the Redth.MauiDevFlow.Blazor NuGet package is referenced.
     Only included in Debug builds since MauiDevFlow is a development-only tool.
     
     Copies the file into wwwroot/js/ so the Razor SDK's static web asset pipeline

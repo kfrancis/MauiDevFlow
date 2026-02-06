@@ -51,7 +51,7 @@ Both methods extend `MauiAppBuilder`. Chobitsu.js is embedded in the `MauiDevFlo
 ### 2. Install the CLI Tool
 
 ```bash
-dotnet tool install --global MauiDevFlow.CLI
+dotnet tool install --global Redth.MauiDevFlow.CLI
 ```
 
 Companion tools for device/emulator management:
@@ -187,7 +187,7 @@ Hybrid page, connected via Shell navigation (`//native` and `//blazor` routes). 
 
 | Tool | Install | Purpose |
 |------|---------|---------|
-| `maui-devflow` | `dotnet tool install -g MauiDevFlow.CLI` | App automation & Blazor CDP |
+| `maui-devflow` | `dotnet tool install -g Redth.MauiDevFlow.CLI` | App automation & Blazor CDP |
 | `android` | `dotnet tool install -g androidsdk.tool` | Android SDK, AVD, device management |
 | `apple` | `dotnet tool install -g appledev.tools` | iOS simulators, provisioning, certificates |
 | `adb` | Android SDK platform-tools | Device communication, port forwarding, logs |

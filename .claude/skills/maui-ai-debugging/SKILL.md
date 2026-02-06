@@ -21,7 +21,7 @@ feedback loop: **build → deploy → inspect → fix → rebuild**.
 Install the three dotnet global tools:
 
 ```bash
-dotnet tool install --global MauiDevFlow.CLI    # maui-devflow
+dotnet tool install --global Redth.MauiDevFlow.CLI    # maui-devflow
 dotnet tool install --global androidsdk.tool     # android
 dotnet tool install --global appledev.tools      # apple
 ```
@@ -30,7 +30,8 @@ Verify: `maui-devflow --version && android --help && apple --help`
 
 ## Integrating MauiDevFlow into a MAUI App
 
-Add project references (or NuGet packages when published) for `MauiDevFlow.Agent` and
+Add project references (or NuGet packages `Redth.MauiDevFlow.Agent` and
+`Redth.MauiDevFlow.Blazor`) for MauiDevFlow.Agent and
 `MauiDevFlow.Blazor` (Blazor Hybrid only), then register in `MauiProgram.cs`:
 
 ```csharp

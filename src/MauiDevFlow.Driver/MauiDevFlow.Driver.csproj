@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
 
-    <PackageId>MauiDevFlow.Driver</PackageId>
+    <PackageId>Redth.MauiDevFlow.Driver</PackageId>
     <Description>Driver library for connecting to MauiDevFlow Agent and orchestrating MAUI app automation.</Description>
     <PackageTags>maui;automation;testing;driver</PackageTags>
   </PropertyGroup>

@@ -21,7 +21,7 @@
     <StaticWebAssetsDisableProjectBuildTransitivePropsFileGeneration>true</StaticWebAssetsDisableProjectBuildTransitivePropsFileGeneration>
 
     <!-- NuGet Package Metadata -->
-    <PackageId>MauiDevFlow.Blazor</PackageId>
+    <PackageId>Redth.MauiDevFlow.Blazor</PackageId>
     <Description>Enable browser developer tools and Playwright MCP automation for .NET MAUI Blazor Hybrid apps. Connects Chrome DevTools Protocol to BlazorWebView via Chobitsu.</Description>
     <PackageTags>maui;blazor;debugging;devtools;cdp;playwright;mcp;automation</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -45,7 +45,7 @@
 
   <!-- Pack .targets and chobitsu.js content into NuGet so consuming apps get wwwroot/js/chobitsu.js automatically -->
   <ItemGroup>
-    <None Include="build\MauiDevFlow.Blazor.targets" Pack="true" PackagePath="build\" />
+    <None Include="build\Redth.MauiDevFlow.Blazor.targets" Pack="true" PackagePath="build\" />
     <None Include="content\wwwroot\js\chobitsu.js" Pack="true" PackagePath="content\wwwroot\js\" />
   </ItemGroup>
 

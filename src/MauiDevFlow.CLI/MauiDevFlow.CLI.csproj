@@ -7,7 +7,7 @@
     <!-- Global tool packaging -->
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>maui-devflow</ToolCommandName>
-    <PackageId>MauiDevFlow.CLI</PackageId>
+    <PackageId>Redth.MauiDevFlow.CLI</PackageId>
     <Version>0.1.0</Version>
     <Description>CDP-oriented CLI for automating MAUI Blazor WebViews</Description>
   </PropertyGroup>
