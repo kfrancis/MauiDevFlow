@@ -19,16 +19,16 @@ jobs:
         run: dotnet workload install maui
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore ci.slnf
 
       - name: Build
-        run: dotnet build -c Release --no-restore
+        run: dotnet build ci.slnf -c Release --no-restore
 
       - name: Test
-        run: dotnet test -c Release --no-build --no-restore
+        run: dotnet test ci.slnf -c Release --no-build --no-restore
 
       - name: Pack
-        run: dotnet pack -c Release --no-build -o ./artifacts
+        run: dotnet pack ci.slnf -c Release --no-build -o ./artifacts
 
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v4

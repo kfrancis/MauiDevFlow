@@ -20,13 +20,13 @@ jobs:
         run: dotnet workload install maui
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore ci.slnf
 
       - name: Build
-        run: dotnet build -c Release --no-restore
+        run: dotnet build ci.slnf -c Release --no-restore
 
       - name: Test
-        run: dotnet test -c Release --no-build --no-restore
+        run: dotnet test ci.slnf -c Release --no-build --no-restore
 
       - name: Determine version
         id: version
@@ -38,7 +38,7 @@ jobs:
           echo "Publishing version: $VERSION"
 
       - name: Pack
-        run: dotnet pack -c Release --no-build -o ./artifacts -p:PackageVersion=${{ steps.version.outputs.version }}
+        run: dotnet pack ci.slnf -c Release --no-build -o ./artifacts -p:PackageVersion=${{ steps.version.outputs.version }}
 
       - name: Push to NuGet.org
         run: dotnet nuget push "./artifacts/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

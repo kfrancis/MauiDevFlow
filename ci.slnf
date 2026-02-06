@@ -1,0 +1,12 @@
+{
+  "solution": {
+    "path": "MauiDevFlow.sln",
+    "projects": [
+      "src/MauiDevFlow.Agent/MauiDevFlow.Agent.csproj",
+      "src/MauiDevFlow.Blazor/MauiDevFlow.Blazor.csproj",
+      "src/MauiDevFlow.CLI/MauiDevFlow.CLI.csproj",
+      "src/MauiDevFlow.Driver/MauiDevFlow.Driver.csproj",
+      "tests/MauiDevFlow.Tests/MauiDevFlow.Tests.csproj"
+    ]
+  }
+}
