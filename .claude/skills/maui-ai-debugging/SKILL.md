@@ -18,44 +18,23 @@ feedback loop: **build → deploy → inspect → fix → rebuild**.
 
 ## Prerequisites
 
-Install the three dotnet global tools:
+Install the CLI tool: `dotnet tool install --global Redth.MauiDevFlow.CLI`
 
-```bash
-dotnet tool install --global Redth.MauiDevFlow.CLI    # maui-devflow
-dotnet tool install --global androidsdk.tool     # android
-dotnet tool install --global appledev.tools      # apple
-```
-
-Verify: `maui-devflow --version && android --help && apple --help`
+For platform-specific tools: `dotnet tool install --global androidsdk.tool` (Android)
+and `dotnet tool install --global appledev.tools` (iOS/Mac).
 
 ## Integrating MauiDevFlow into a MAUI App
 
-Add project references (or NuGet packages `Redth.MauiDevFlow.Agent` and
-`Redth.MauiDevFlow.Blazor` for Blazor Hybrid), then register in `MauiProgram.cs`:
+For complete setup instructions including NuGet packages, MauiProgram.cs registration,
+Blazor script tag, Mac Catalyst entitlements, and Android port forwarding, see
+[references/setup.md](references/setup.md).
 
-```csharp
-using MauiDevFlow.Agent;
-using MauiDevFlow.Blazor;
-
-var builder = MauiApp.CreateBuilder();
-// ... existing setup ...
-
-#if DEBUG
-builder.Services.AddBlazorWebViewDeveloperTools(); // Blazor Hybrid only
-builder.AddMauiDevFlowAgent(options => { options.Port = 9223; });
-builder.AddMauiBlazorDevFlowTools(options => { options.Port = 9222; }); // Blazor Hybrid only
-#endif
-```
-
-Both `AddMauiDevFlowAgent` and `AddMauiBlazorDevFlowTools` are extension methods on `MauiAppBuilder`.
-Agent options: `Port` (default 9223), `Enabled` (default true), `MaxTreeDepth` (0 = unlimited).
-Blazor options: `Port` (default 9222), `Enabled` (default true), `EnableWebViewInspection` (default true), `EnableLogging` (default true in DEBUG).
-
-For Blazor Hybrid apps, add the chobitsu script tag to `wwwroot/index.html` (the file is auto-copied to `wwwroot/js/` during Debug builds):
-
-```html
-<script src="js/chobitsu.js"></script>  <!-- Add before </head> -->
-```
+**Quick summary:**
+1. Add NuGet packages (`Redth.MauiDevFlow.Agent`, and `Redth.MauiDevFlow.Blazor` for Blazor Hybrid)
+2. Register in `MauiProgram.cs` inside `#if DEBUG`
+3. For Blazor Hybrid: add `<script src="js/chobitsu.js"></script>` to `wwwroot/index.html`
+4. For Mac Catalyst: ensure `network.server` entitlement
+5. For Android: run `adb reverse` for port forwarding
 
 ## Core Workflow
 
@@ -223,6 +202,7 @@ The agent exposes JSON endpoints on port 9223 (configurable):
 
 For detailed platform-specific setup, simulator/emulator management, and troubleshooting:
 
+- **Setup & Installation**: See [references/setup.md](references/setup.md)
 - **iOS / Mac Catalyst**: See [references/ios-and-mac.md](references/ios-and-mac.md)
 - **Android**: See [references/android.md](references/android.md)
 
