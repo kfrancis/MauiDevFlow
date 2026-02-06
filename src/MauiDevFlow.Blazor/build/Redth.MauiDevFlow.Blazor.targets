@@ -8,14 +8,14 @@
     discovers it and handles platform-specific bundling (iOS bundle, Android assets, etc.).
   -->
   <PropertyGroup>
-    <_ChobitsuJsSource>$(MSBuildThisFileDirectory)..\content\wwwroot\js\chobitsu.js</_ChobitsuJsSource>
-    <_ChobitsuJsDest>$(MSBuildProjectDirectory)\wwwroot\js\chobitsu.js</_ChobitsuJsDest>
+    <_ChobitsuJsSource>$(MSBuildThisFileDirectory)../content/wwwroot/js/chobitsu.js</_ChobitsuJsSource>
+    <_ChobitsuJsDest>$(MSBuildProjectDirectory)/wwwroot/js/chobitsu.js</_ChobitsuJsDest>
   </PropertyGroup>
 
   <Target Name="_CopyChobitsuToWwwroot"
           BeforeTargets="StaticWebAssetsPrepareForRun;Build"
           Condition="'$(Configuration)' == 'Debug' AND Exists('$(_ChobitsuJsSource)')">
-    <MakeDir Directories="$(MSBuildProjectDirectory)\wwwroot\js" />
+    <MakeDir Directories="$(MSBuildProjectDirectory)/wwwroot/js" />
     <Copy SourceFiles="$(_ChobitsuJsSource)"
           DestinationFiles="$(_ChobitsuJsDest)"
           SkipUnchangedFiles="true" />
