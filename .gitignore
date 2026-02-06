@@ -427,5 +427,7 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
-# Auto-copied by build targets (MauiDevFlow.Blazor chobitsu.js)
+# Auto-copied by build targets (MauiDevFlow.Blazor chobitsu.js) into app wwwroot
+# Don't ignore the NuGet content source: src/MauiDevFlow.Blazor/content/wwwroot/js/chobitsu.js
 **/wwwroot/js/chobitsu.js
+!**/content/wwwroot/js/chobitsu.js
