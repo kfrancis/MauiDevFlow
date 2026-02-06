@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -208,6 +209,24 @@ class Program
         mauiCommand.Add(mauiNavigateCmd);
 
         rootCommand.Add(mauiCommand);
+
+        // ===== update-skill command =====
+        var forceOption = new Option<bool>(
+            ["--force", "-y"],
+            "Skip confirmation prompt");
+        var outputDirOption = new Option<string?>(
+            ["--output", "-o"],
+            "Output directory (defaults to current directory)");
+        var branchOption = new Option<string>(
+            ["--branch", "-b"],
+            () => "main",
+            "GitHub branch to download from");
+        var updateSkillCmd = new Command("update-skill", "Download the latest maui-ai-debugging skill from GitHub")
+        {
+            forceOption, outputDirOption, branchOption
+        };
+        updateSkillCmd.SetHandler(async (force, output, branch) => await UpdateSkillAsync(force, output, branch), forceOption, outputDirOption, branchOption);
+        rootCommand.Add(updateSkillCmd);
         
         return await rootCommand.InvokeAsync(args);
     }
@@ -547,6 +566,117 @@ class Program
     private static string FormatJson(JsonElement element)
     {
         return JsonSerializer.Serialize(element, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    // ===== Update Skill Command =====
+
+    private const string SkillRepo = "Redth/MauiDevFlow";
+    private const string SkillBasePath = ".claude/skills/maui-ai-debugging";
+
+    private static async Task UpdateSkillAsync(bool force, string? outputDir, string branch)
+    {
+        var root = outputDir ?? Directory.GetCurrentDirectory();
+        var destBase = Path.Combine(root, SkillBasePath);
+
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MauiDevFlow-CLI", "1.0"));
+        http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+
+        // Discover files via GitHub Trees API (recursive)
+        Console.WriteLine("Fetching skill file list from GitHub...");
+        List<string> files;
+        try
+        {
+            files = await GetSkillFilesFromGitHubAsync(http, branch);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to fetch file list: {ex.Message}");
+            return;
+        }
+
+        if (files.Count == 0)
+        {
+            Console.Error.WriteLine("No skill files found in the repository.");
+            return;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("maui-devflow update-skill");
+        Console.WriteLine($"  Source: https://github.com/{SkillRepo}/tree/{branch}/{SkillBasePath}");
+        Console.WriteLine($"  Destination: {destBase}");
+        Console.WriteLine();
+        Console.WriteLine("Files to download:");
+        foreach (var file in files)
+        {
+            var destPath = Path.Combine(destBase, file);
+            var exists = File.Exists(destPath);
+            Console.WriteLine($"  {SkillBasePath}/{file}{(exists ? " (overwrite)" : " (new)")}");
+        }
+        Console.WriteLine();
+
+        if (!force)
+        {
+            Console.Write("Existing files will be overwritten. Continue? [y/N] ");
+            var response = Console.ReadLine()?.Trim().ToLowerInvariant();
+            if (response is not ("y" or "yes"))
+            {
+                Console.WriteLine("Cancelled.");
+                return;
+            }
+        }
+
+        var success = 0;
+        foreach (var file in files)
+        {
+            var url = $"https://raw.githubusercontent.com/{SkillRepo}/{branch}/{SkillBasePath}/{file}";
+            var destPath = Path.Combine(destBase, file);
+
+            try
+            {
+                var content = await http.GetStringAsync(url);
+                Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
+                await File.WriteAllTextAsync(destPath, content);
+                Console.WriteLine($"  ✓ {file}");
+                success++;
+            }
+            catch (HttpRequestException ex)
+            {
+                Console.Error.WriteLine($"  ✗ {file}: {ex.Message}");
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(success == files.Count
+            ? $"Done. {success} files updated."
+            : $"Done. {success}/{files.Count} files updated.");
+    }
+
+    private static async Task<List<string>> GetSkillFilesFromGitHubAsync(HttpClient http, string branch)
+    {
+        var files = new List<string>();
+        await ListGitHubDirectoryAsync(http, SkillBasePath, "", files, branch);
+        return files;
+    }
+
+    private static async Task ListGitHubDirectoryAsync(HttpClient http, string basePath, string relativePath, List<string> files, string branch)
+    {
+        var apiPath = string.IsNullOrEmpty(relativePath) ? basePath : $"{basePath}/{relativePath}";
+        var url = $"https://api.github.com/repos/{SkillRepo}/contents/{apiPath}?ref={branch}";
+        var json = await http.GetStringAsync(url);
+        var items = JsonSerializer.Deserialize<JsonElement>(json);
+
+        foreach (var item in items.EnumerateArray())
+        {
+            var name = item.GetProperty("name").GetString()!;
+            var type = item.GetProperty("type").GetString()!;
+            var itemRelative = string.IsNullOrEmpty(relativePath) ? name : $"{relativePath}/{name}";
+
+            if (type == "file")
+                files.Add(itemRelative);
+            else if (type == "dir")
+                await ListGitHubDirectoryAsync(http, basePath, itemRelative, files, branch);
+        }
     }
 
     // ===== MAUI Agent Commands =====

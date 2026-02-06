@@ -204,6 +204,29 @@ agents the complete build → deploy → inspect → fix feedback loop. The skil
 - Using CDP to inspect and manipulate Blazor WebView content
 - Managing simulators/emulators with `apple`, `android`, `xcrun simctl`, and `adb`
 
+### Installing the Skill
+
+The CLI can download the latest skill files directly from GitHub into your project:
+
+```bash
+# Interactive — shows files and asks for confirmation
+maui-devflow update-skill
+
+# Skip confirmation
+maui-devflow update-skill -y
+
+# Download to a specific directory
+maui-devflow update-skill -o /path/to/my-project
+
+# Use a different branch
+maui-devflow update-skill -b dev
+```
+
+This downloads the skill files into `.claude/skills/maui-ai-debugging/` relative to the output
+directory (or current directory if `--output` is not specified). Existing files are overwritten.
+The file list is discovered dynamically from the repository, so new reference docs are picked up
+automatically.
+
 ## License
 
 MIT
