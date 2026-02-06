@@ -97,7 +97,24 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
         }
     }
 
+    private bool _injecting;
+
     private async Task InjectDebugScriptAsync()
+    {
+        if (_injecting) return;
+        _injecting = true;
+
+        try
+        {
+            await InjectDebugScriptCoreAsync();
+        }
+        finally
+        {
+            _injecting = false;
+        }
+    }
+
+    private async Task InjectDebugScriptCoreAsync()
     {
         if (!HasWebView)
         {
@@ -105,26 +122,21 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
             return;
         }
 
-        // Check if chobitsu is already loaded (e.g. via <script> tag in index.html)
-        var check = await EvaluateJavaScriptAsync(
-            "typeof chobitsu !== 'undefined' ? 'loaded' : 'waiting'");
-        Log($"[BlazorDevFlow] Chobitsu check: {check}");
-
-        if (check?.ToString() != "loaded")
+        // Wait for chobitsu to be available (loaded via <script> tag in index.html)
+        for (int i = 0; i < 30; i++)
         {
-            // Inject chobitsu.js from embedded resource
-            Log("[BlazorDevFlow] Chobitsu not found, injecting from embedded resource...");
-            try
+            var check = await EvaluateJavaScriptAsync(
+                "typeof chobitsu !== 'undefined' ? 'loaded' : 'waiting'");
+            if (i == 0 || check?.ToString() == "loaded")
+                Log($"[BlazorDevFlow] Chobitsu check #{i}: {check}");
+            if (check?.ToString() == "loaded") break;
+            if (i == 29)
             {
-                var chobitsuJs = ChobitsuDebugScript.GetEmbeddedChobitsuJs();
-                await EvaluateJavaScriptAsync(chobitsuJs);
-                Log("[BlazorDevFlow] Chobitsu injected from embedded resource");
-            }
-            catch (Exception ex)
-            {
-                LogError("[BlazorDevFlow] Failed to inject chobitsu.js", ex);
+                Log("[BlazorDevFlow] Chobitsu not loaded after 15s. Add <script src=\"js/chobitsu.js\"></script> to wwwroot/index.html before </head>.");
+                Log("[BlazorDevFlow] The chobitsu.js file is auto-copied to wwwroot/js/ by the NuGet package during Debug builds.");
                 return;
             }
+            await Task.Delay(500);
         }
 
         var script = ChobitsuDebugScript.GetInjectionScript(_bridge.Port);

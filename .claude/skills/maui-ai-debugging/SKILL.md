@@ -51,7 +51,11 @@ Both `AddMauiDevFlowAgent` and `AddMauiBlazorDevFlowTools` are extension methods
 Agent options: `Port` (default 9223), `Enabled` (default true), `MaxTreeDepth` (0 = unlimited).
 Blazor options: `Port` (default 9222), `Enabled` (default true), `EnableWebViewInspection` (default true), `EnableLogging` (default true in DEBUG).
 
-Chobitsu.js is embedded in the `MauiDevFlow.Blazor` library — no wwwroot copy needed.
+For Blazor Hybrid apps, add the chobitsu script tag to `wwwroot/index.html` (the file is auto-copied to `wwwroot/js/` during Debug builds):
+
+```html
+<script src="js/chobitsu.js"></script>  <!-- Add before </head> -->
+```
 
 ## Core Workflow
 

@@ -46,7 +46,13 @@ builder.AddMauiBlazorDevFlowTools(options => { options.Port = 9222; }); // Blazo
 
 **Blazor options:** `Port` (default 9222), `Enabled` (default true), `EnableWebViewInspection` (default true), `EnableLogging` (default true in DEBUG).
 
-Both methods extend `MauiAppBuilder`. Chobitsu.js is embedded in the `MauiDevFlow.Blazor` library — no wwwroot copy needed.
+Both methods extend `MauiAppBuilder`.
+
+**Blazor Hybrid apps** also need a script tag in `wwwroot/index.html` (the `chobitsu.js` file is auto-copied to `wwwroot/js/` during Debug builds by the NuGet package):
+
+```html
+<script src="js/chobitsu.js"></script>  <!-- Add before </head> -->
+```
 
 ### 2. Install the CLI Tool
 

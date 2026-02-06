@@ -4,8 +4,11 @@
     This file is imported automatically when the Redth.MauiDevFlow.Blazor NuGet package is referenced.
     Only included in Debug builds since MauiDevFlow is a development-only tool.
     
-    Copies the file into wwwroot/js/ so the Razor SDK's static web asset pipeline
-    discovers it and handles platform-specific bundling (iOS bundle, Android assets, etc.).
+    Users must also add this to their wwwroot/index.html (before </head>):
+      <script src="js/chobitsu.js"></script>
+    
+    Dynamic injection doesn't work because MAUI's app:// URL scheme blocks
+    dynamic script loading and chobitsu.js uses eval/new Function internally.
   -->
   <PropertyGroup>
     <_ChobitsuJsSource>$(MSBuildThisFileDirectory)../content/wwwroot/js/chobitsu.js</_ChobitsuJsSource>
