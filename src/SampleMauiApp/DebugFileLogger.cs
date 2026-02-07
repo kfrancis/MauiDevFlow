@@ -53,8 +53,7 @@ public class DebugFileLoggerProvider : ILoggerProvider
 
     public DebugFileLoggerProvider(string appName)
     {
-        var homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        _logDirectory = Path.Combine(homeDir, ".copilotmauidebuglogs", appName);
+        _logDirectory = Path.Combine(FileSystem.CacheDirectory, "mauidevflow-debuglogs", appName);
         
         Directory.CreateDirectory(_logDirectory);
         
