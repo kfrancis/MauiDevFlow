@@ -40,19 +40,18 @@ var builder = MauiApp.CreateBuilder();
 
 #if DEBUG
 builder.Services.AddBlazorWebViewDeveloperTools();          // Blazor Hybrid only
-builder.AddMauiDevFlowAgent(options => { options.Port = 9223; });
-builder.AddMauiBlazorDevFlowTools(options => { options.Port = 9222; }); // Blazor Hybrid only
+builder.AddMauiDevFlowAgent();
+builder.AddMauiBlazorDevFlowTools(); // Blazor Hybrid only
 #endif
 ```
 
 **Agent options:**
-- `Port` — HTTP port for the agent REST API (default: 9223)
+- `Port` — HTTP port for the agent REST API (default: 9223). Also overridable at build time via `-p:MauiDevFlowPort=XXXX`.
 - `Enabled` — Enable/disable the agent (default: true)
 - `MaxTreeDepth` — Max depth for visual tree queries, 0 = unlimited (default: 0)
 
 **Blazor options:**
-- `Port` — WebSocket port for CDP bridge (default: 9222)
-- `Enabled` — Enable/disable CDP bridge (default: true)
+- `Enabled` — Enable/disable CDP support (default: true)
 - `EnableWebViewInspection` — Enable WebView inspection (default: true)
 - `EnableLogging` — Log debug messages (default: true in DEBUG)
 
@@ -162,12 +161,12 @@ Reference in your `.csproj` (Debug only, so Release uses the default entitlement
 After deploying to an Android emulator, set up port forwarding so the CLI can reach the agent:
 
 ```bash
-adb reverse tcp:9223 tcp:9223    # Agent
-adb reverse tcp:9222 tcp:9222    # CDP (Blazor Hybrid only)
+adb reverse tcp:9223 tcp:9223    # Agent + CDP (single port)
 ```
 
 This is needed because the emulator runs in its own network namespace. Physical devices
-connected via USB also need this.
+connected via USB also need this. If using a custom port (`-p:MauiDevFlowPort=9225`),
+forward that port instead.
 
 ## 7. Verify Setup
 

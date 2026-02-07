@@ -18,10 +18,18 @@ feedback loop: **build → deploy → inspect → fix → rebuild**.
 
 ## Prerequisites
 
-Install the CLI tool: `dotnet tool install --global Redth.MauiDevFlow.CLI`
+Install (or update) the CLI tool and ensure it's the latest version:
+
+```bash
+dotnet tool install --global Redth.MauiDevFlow.CLI || dotnet tool update --global Redth.MauiDevFlow.CLI
+```
 
 For platform-specific tools: `dotnet tool install --global androidsdk.tool` (Android)
 and `dotnet tool install --global appledev.tools` (iOS/Mac).
+
+**Keep the skill up to date:** Run `maui-devflow update-skill` periodically (or at the start
+of a new session) to download the latest version of this skill from GitHub. The skill evolves
+alongside the CLI — outdated skill files may reference removed options or miss new commands.
 
 ## Integrating MauiDevFlow into a MAUI App
 
@@ -34,7 +42,7 @@ Blazor script tag, Mac Catalyst entitlements, and Android port forwarding, see
 2. Register in `MauiProgram.cs` inside `#if DEBUG`
 3. For Blazor Hybrid: add `<script src="chobitsu.js"></script>` to `wwwroot/index.html`
 4. For Mac Catalyst: ensure `network.server` entitlement
-5. For Android: run `adb reverse` for port forwarding
+5. For Android: run `adb reverse tcp:9223 tcp:9223`
 
 ## Core Workflow
 
@@ -76,15 +84,14 @@ The `-t:Run` flag keeps the process alive (--wait-for-exit). Run in background o
 
 For Android emulators, set up port forwarding after deploy:
 ```bash
-adb reverse tcp:9223 tcp:9223    # Agent
-adb reverse tcp:9222 tcp:9222    # CDP (Blazor)
+adb reverse tcp:9223 tcp:9223    # Agent + CDP (single port)
 ```
 
 ### 3. Verify Connectivity
 
 ```bash
-maui-devflow MAUI status          # Agent connection (native)
-maui-devflow cdp status           # CDP connection (Blazor WebView)
+maui-devflow MAUI status          # Agent connection + CDP readiness
+maui-devflow cdp status           # CDP-specific connection check
 ```
 
 ### 4. Inspect and Interact
@@ -195,7 +202,8 @@ AutomationId, suffixes are appended: `TodoCheckBox`, `TodoCheckBox_1`, `TodoChec
 
 ### maui-devflow cdp (Blazor WebView CDP)
 
-Global option: `--endpoint` (default `ws://localhost:9222/devtools/browser`).
+Global options: `--agent-host` (default localhost), `--agent-port` (default 9223).
+CDP commands use the same agent port — all communication goes through a single port.
 
 | Command | Description |
 |---------|-------------|
@@ -216,7 +224,7 @@ Global option: `--endpoint` (default `ws://localhost:9222/devtools/browser`).
 
 ### Agent REST API (Direct HTTP)
 
-The agent exposes JSON endpoints on port 9223 (configurable):
+The agent exposes JSON endpoints on port 9223 (configurable via `-p:MauiDevFlowPort`):
 
 | Endpoint | Method | Body |
 |----------|--------|------|
@@ -231,6 +239,7 @@ The agent exposes JSON endpoints on port 9223 (configurable):
 | `/api/screenshot` | GET | — (returns PNG) |
 | `/api/property/{id}/{name}` | GET | — |
 | `/api/logs?limit=N&skip=N` | GET | — (returns JSON array of log entries) |
+| `/api/cdp` | POST | CDP command JSON (e.g. `{"id":1,"method":"Runtime.evaluate","params":{...}}`) |
 
 ## Platform Details
 
@@ -239,6 +248,46 @@ For detailed platform-specific setup, simulator/emulator management, and trouble
 - **Setup & Installation**: See [references/setup.md](references/setup.md)
 - **iOS / Mac Catalyst**: See [references/ios-and-mac.md](references/ios-and-mac.md)
 - **Android**: See [references/android.md](references/android.md)
+
+## Multi-Project / Custom Ports
+
+The default port is 9223. When it's already in use (e.g., another MAUI app is running),
+you **must** find a free port before building. Follow this workflow:
+
+### Step 1: Find a free port
+
+```bash
+# Check if default port 9223 is available
+lsof -i :9223  # no output = free
+
+# If busy, try the next ports until one is free
+lsof -i :9224
+lsof -i :9225
+# ... pick the first port with no output
+```
+
+### Step 2: Build and run with that port
+
+Pass the free port via `-p:MauiDevFlowPort` on every `dotnet build` invocation:
+
+```bash
+dotnet build -f net10.0-maccatalyst -t:Run -p:MauiDevFlowPort=9225
+```
+
+### Step 3: Use the same port for ALL CLI commands
+
+**Important:** Remember the port you chose and pass `--agent-port` to every `maui-devflow`
+command for the rest of the session:
+
+```bash
+maui-devflow MAUI status --agent-port 9225
+maui-devflow MAUI tree --agent-port 9225
+maui-devflow cdp snapshot --agent-port 9225
+```
+
+For Android, match the `adb reverse` port: `adb reverse tcp:9225 tcp:9225`.
+
+**Port priority:** Code-set `options.Port` > MSBuild `-p:MauiDevFlowPort` > Default 9223.
 
 ## Tips
 
@@ -249,9 +298,11 @@ For detailed platform-specific setup, simulator/emulator management, and trouble
   Routes are defined in AppShell.xaml via `Route` property on ShellContent elements.
 - For Blazor Hybrid, `cdp snapshot` is the most AI-friendly way to read page state.
 - Build times: Mac Catalyst ~5-10s, iOS ~30-60s, Android ~30-90s. Set appropriate timeouts.
-- After Android deploy, always run `adb reverse` for port forwarding.
+- After Android deploy, always run `adb reverse tcp:9223 tcp:9223` for port forwarding.
 - **Property inspection** is more reliable than screenshots for verifying exact runtime values
   (colors, sizes, visibility). Use `tree` → `property` workflow for systematic debugging.
 - **Application logs** are captured automatically from `ILogger`. Use `MAUI logs` to fetch
   them remotely. Add temporary `ILogger` calls for extra debug output, then fetch logs after
   reproducing issues. This is often faster than attaching a debugger.
+- **Single port**: Both MAUI native and CDP commands share port 9223 (configurable).
+  No separate WebSocket endpoint needed.
