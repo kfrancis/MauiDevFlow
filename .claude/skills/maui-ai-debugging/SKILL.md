@@ -135,14 +135,35 @@ font sizes, and layout metrics.
 3. `maui-devflow cdp Input dispatchClickEvent "css-selector"` — click elements
 4. `maui-devflow cdp Runtime evaluate "js-expression"` — run JS
 
-**Debugging Blazor styling via CDP:**
-Use `Runtime evaluate` to inspect computed styles and verify CSS:
+**Live CSS/DOM editing in Blazor (no rebuild needed):**
+Use `Runtime evaluate` to experiment with styles and DOM changes in-place before committing
+to code. Changes are immediate and non-destructive — lost on page reload.
+
+```bash
+# Change an element's style directly
+maui-devflow cdp Runtime evaluate "document.querySelector('h1').style.color = 'tomato'"
+
+# Bulk-update elements
+maui-devflow cdp Runtime evaluate "document.querySelectorAll('.todo-item').forEach(el => el.style.borderRadius = '20px')"
+
+# Set or override CSS variables
+maui-devflow cdp Runtime evaluate "document.documentElement.style.setProperty('--bg-color', '#1a1a2e')"
+
+# Inject a whole style rule (great for testing complex changes)
+maui-devflow cdp Runtime evaluate "document.head.insertAdjacentHTML('beforeend', '<style>.btn { background: linear-gradient(135deg, #667eea, #764ba2) !important; }</style>')"
+
+# Change element text to preview copy changes
+maui-devflow cdp Runtime evaluate "document.querySelector('h1').textContent = 'New Title'"
+```
+
+**Reading computed styles (verify actual rendered values):**
 ```bash
 maui-devflow cdp Runtime evaluate "getComputedStyle(document.querySelector('.my-class')).backgroundColor"
+maui-devflow cdp Runtime evaluate "getComputedStyle(document.querySelector('.my-class')).borderRadius"
 maui-devflow cdp Runtime evaluate "window.matchMedia('(prefers-color-scheme: dark)').matches"
-maui-devflow cdp Runtime evaluate "document.styleSheets.length"
 ```
-This enables verifying Blazor dark mode, layout, and styling without relying solely on screenshots.
+Use computed style reads to verify exact color values, font sizes, and layout metrics — more
+reliable than screenshots for precise debugging.
 
 ### 5. Reading Application Logs
 

@@ -153,7 +153,16 @@ maui-devflow cdp Input insertText "typed text"
 maui-devflow cdp Page navigate "https://example.com"
 maui-devflow cdp Page reload
 maui-devflow cdp Page captureScreenshot
+
+# Live CSS/DOM editing (experiment without rebuilding)
+maui-devflow cdp Runtime evaluate "document.querySelector('h1').style.color = 'tomato'"
+maui-devflow cdp Runtime evaluate "document.querySelectorAll('.item').forEach(el => el.style.borderRadius = '20px')"
+maui-devflow cdp Runtime evaluate "document.documentElement.style.setProperty('--bg-color', '#1a1a2e')"
+maui-devflow cdp Runtime evaluate "document.head.insertAdjacentHTML('beforeend', '<style>.btn { background: hotpink !important; }</style>')"
 ```
+
+> **Tip:** Live CSS/DOM edits are immediate and non-destructive — changes are lost on page reload,
+> making them safe for experimentation before committing to code.
 
 > **Note:** On iOS/Mac Catalyst, `Page.reload`, `Page.navigate`, and `Input.insertText` are
 > intercepted and handled via native WKWebView APIs. This is necessary because these operations
