@@ -70,14 +70,14 @@ var builder = MauiApp.CreateBuilder();
 
 #if DEBUG
 builder.Services.AddBlazorWebViewDeveloperTools();
-builder.AddMauiDevFlowAgent(options => { options.Port = 9223; });
-builder.AddMauiBlazorDevFlowTools(options => { options.Port = 9222; }); // Blazor Hybrid only
+builder.AddMauiDevFlowAgent();
+builder.AddMauiBlazorDevFlowTools(); // Blazor Hybrid only
 #endif
 ```
 
-**Agent options:** `Port` (default 9223), `Enabled` (default true), `MaxTreeDepth` (0 = unlimited).
+**Agent options:** `Port` (default 9223), `Enabled` (default true), `MaxTreeDepth` (0 = unlimited). Port is also overridable at build time via `-p:MauiDevFlowPort=XXXX`.
 
-**Blazor options:** `Port` (default 9222), `Enabled` (default true), `EnableWebViewInspection` (default true), `EnableLogging` (default true in DEBUG).
+**Blazor options:** `Enabled` (default true), `EnableWebViewInspection` (default true), `EnableLogging` (default true in DEBUG). CDP commands are routed through the agent port — no separate Blazor port needed.
 
 Both methods extend `MauiAppBuilder`.
 
@@ -100,7 +100,7 @@ dotnet tool install --global appledev.tools     # apple (simulators, provisionin
 #### 5. Platform-Specific Setup
 
 - **Mac Catalyst:** Add `com.apple.security.network.server` entitlement (see [setup guide](.claude/skills/maui-ai-debugging/references/setup.md#5-mac-catalyst-entitlements))
-- **Android Emulator:** Run `adb reverse tcp:9223 tcp:9223` (and `tcp:9222` for Blazor)
+- **Android Emulator:** Run `adb reverse tcp:9223 tcp:9223`
 - **iOS Simulator:** No extra setup needed
 
 </details>
