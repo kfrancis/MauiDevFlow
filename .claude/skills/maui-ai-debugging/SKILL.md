@@ -40,9 +40,23 @@ Blazor script tag, Mac Catalyst entitlements, and Android port forwarding, see
 **Quick summary:**
 1. Add NuGet packages (`Redth.MauiDevFlow.Agent`, and `Redth.MauiDevFlow.Blazor` for Blazor Hybrid)
 2. Register in `MauiProgram.cs` inside `#if DEBUG`
-3. For Blazor Hybrid: add `<script src="chobitsu.js"></script>` to `wwwroot/index.html`
-4. For Mac Catalyst: ensure `network.server` entitlement
-5. For Android: run `adb reverse tcp:9223 tcp:9223`
+3. Create `mauidevflow.json` with a random port (see below)
+4. For Blazor Hybrid: add `<script src="chobitsu.js"></script>` to `wwwroot/index.html`
+5. For Mac Catalyst: ensure `network.server` entitlement
+6. For Android: run `adb reverse` for the configured port
+
+**Port configuration:** If no `mauidevflow.json` exists in the project directory, create one
+with a random port between 9223–9899 to avoid collisions with other projects:
+
+```json
+{
+  "port": <pick a random number between 9223 and 9899>
+}
+```
+
+Both the build and the CLI read this file automatically — no need to pass `-p:MauiDevFlowPort`
+or `--agent-port` flags. Run CLI commands from the project directory for automatic detection.
+If the file already exists, use the port specified in it.
 
 ## Core Workflow
 

@@ -75,11 +75,21 @@ builder.AddMauiBlazorDevFlowTools(); // Blazor Hybrid only
 #endif
 ```
 
-**Agent options:** `Port` (default 9223), `Enabled` (default true), `MaxTreeDepth` (0 = unlimited). Port is also overridable at build time via `-p:MauiDevFlowPort=XXXX`.
+**Agent options:** `Port` (default 9223), `Enabled` (default true), `MaxTreeDepth` (0 = unlimited). Port is also configurable via `mauidevflow.json` or `-p:MauiDevFlowPort=XXXX`.
 
 **Blazor options:** `Enabled` (default true), `EnableWebViewInspection` (default true), `EnableLogging` (default true in DEBUG). CDP commands are routed through the agent port — no separate Blazor port needed.
 
 Both methods extend `MauiAppBuilder`.
+
+#### 3. Port Configuration (optional)
+
+Create a `mauidevflow.json` in your project directory to use a custom port:
+
+```json
+{ "port": 9347 }
+```
+
+Both the build and CLI auto-detect this file — no flags needed. Useful when running multiple MAUI projects simultaneously.
 
 #### 3. Blazor Hybrid: Add Script Tag
 
