@@ -176,6 +176,12 @@ Reference in your `.csproj` (Debug only, so Release uses the default entitlement
 </PropertyGroup>
 ```
 
+**Avoiding TCC permission dialogs:** Even with sandbox disabled, macOS prompts for access to
+`~/Documents`, `~/Downloads`, `~/Desktop`, and dotfiles in `~/` on every rebuild (ad-hoc signing
+changes the code signature each build). To avoid this, store app data in
+`Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)` (`~/Library/Application Support/`)
+instead of the home directory root. This path is not TCC-protected.
+
 ## 6. Android: Port Forwarding
 
 After deploying to an Android emulator, set up port forwarding so the CLI can reach the agent:

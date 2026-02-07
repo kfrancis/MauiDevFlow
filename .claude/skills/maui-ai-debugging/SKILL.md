@@ -441,6 +441,22 @@ If `maui-devflow cdp status` fails but `MAUI status` works:
 2. **Blazor not initialized?** Navigate to a Blazor page first, then retry
 3. Check app logs: `maui-devflow MAUI logs --limit 20` — look for `[BlazorDevFlow]` errors
 
+### Mac Catalyst: Repeated Permission Dialogs on Rebuild
+
+If macOS prompts "App would like to access your Documents folder" on every rebuild:
+
+**Cause:** TCC permissions are tied to the app's code signature. Ad-hoc Debug builds produce a
+different signature each rebuild → macOS forgets the grant and re-prompts. This happens even
+with App Sandbox disabled.
+
+**Fix:** Don't access TCC-protected directories (`~/Documents`, `~/Downloads`, `~/Desktop`,
+or dotfiles like `~/.myapp/` in the home root) programmatically. Instead use:
+- `Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)` → `~/Library/Application Support/` (not TCC-protected)
+- `NSOpenPanel`/`NSSavePanel` for user-initiated file access (grants automatic TCC exemption)
+
+If you can't avoid TCC paths, sign Debug builds with a stable Apple Development certificate
+so the code signature stays consistent across rebuilds.
+
 ## Tips
 
 - Use `AutomationId` on important MAUI controls for stable element references.
