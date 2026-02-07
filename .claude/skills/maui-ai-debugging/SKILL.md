@@ -82,6 +82,11 @@ Adjust TFM version (net9.0, net10.0) to match project. Check the `.csproj` `<Tar
 Build + Run can take 30-120+ seconds. Use `initial_wait: 120` or higher for async monitoring.
 The `-t:Run` flag keeps the process alive (--wait-for-exit). Run in background or a separate shell.
 
+**Device/simulator compatibility:** The TFM compile target (e.g. net10.0-android targets API 36,
+net10.0-ios targets iOS 26) does NOT mean you need a matching emulator/simulator version. Apps run
+on any device at or above `SupportedOSPlatformVersion` (check `Directory.Build.props` or `.csproj`).
+Use whatever emulator/simulator is available — don't waste time finding one that matches the TFM.
+
 For Android emulators, set up port forwarding after deploy:
 ```bash
 adb reverse tcp:9223 tcp:9223    # Agent + CDP (single port)
