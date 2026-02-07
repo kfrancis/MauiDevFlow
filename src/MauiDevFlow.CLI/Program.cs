@@ -1,6 +1,5 @@
 using System.CommandLine;
 using System.Net.Http.Headers;
-using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 
@@ -12,117 +11,11 @@ namespace MauiDevFlow.CLI;
 /// </summary>
 class Program
 {
-    private static readonly string DefaultEndpoint = "ws://localhost:9222/devtools/browser";
-    
     static async Task<int> Main(string[] args)
     {
         var rootCommand = new RootCommand("MauiDevFlow CLI - automate MAUI apps via Agent API and Blazor WebViews via CDP");
         
-        // ===== CDP commands (Blazor WebView) =====
-        var endpointOption = new Option<string>(
-            ["--endpoint", "-e"],
-            () => DefaultEndpoint,
-            "CDP WebSocket endpoint");
-        
-        var cdpCommand = new Command("cdp", "Blazor WebView automation via Chrome DevTools Protocol")
-        {
-            endpointOption
-        };
-        
-        // Browser domain commands
-        var browserCommand = new Command("Browser", "Browser domain commands");
-        
-        var getVersionCmd = new Command("getVersion", "Get browser version info");
-        getVersionCmd.SetHandler(async (endpoint) => await BrowserGetVersionAsync(endpoint), endpointOption);
-        browserCommand.Add(getVersionCmd);
-        
-        cdpCommand.Add(browserCommand);
-        
-        // Runtime domain commands  
-        var runtimeCommand = new Command("Runtime", "Runtime domain commands");
-        
-        var evaluateArg = new Argument<string>("expression", "JavaScript expression");
-        var evaluateCmd = new Command("evaluate", "Evaluate JavaScript expression") { evaluateArg };
-        evaluateCmd.SetHandler(async (endpoint, expr) => await RuntimeEvaluateAsync(endpoint, expr), endpointOption, evaluateArg);
-        runtimeCommand.Add(evaluateCmd);
-        
-        cdpCommand.Add(runtimeCommand);
-        
-        // DOM domain commands
-        var domCommand = new Command("DOM", "DOM domain commands");
-        
-        var getDocumentCmd = new Command("getDocument", "Get document root node");
-        getDocumentCmd.SetHandler(async (endpoint) => await DomGetDocumentAsync(endpoint), endpointOption);
-        domCommand.Add(getDocumentCmd);
-        
-        var querySelectorArg = new Argument<string>("selector", "CSS selector");
-        var querySelectorCmd = new Command("querySelector", "Find element by CSS selector") { querySelectorArg };
-        querySelectorCmd.SetHandler(async (endpoint, selector) => await DomQuerySelectorAsync(endpoint, selector), endpointOption, querySelectorArg);
-        domCommand.Add(querySelectorCmd);
-        
-        var querySelectorAllArg = new Argument<string>("selector", "CSS selector");
-        var querySelectorAllCmd = new Command("querySelectorAll", "Find all elements by CSS selector") { querySelectorAllArg };
-        querySelectorAllCmd.SetHandler(async (endpoint, selector) => await DomQuerySelectorAllAsync(endpoint, selector), endpointOption, querySelectorAllArg);
-        domCommand.Add(querySelectorAllCmd);
-        
-        var getOuterHtmlArg = new Argument<string>("selector", "CSS selector");
-        var getOuterHtmlCmd = new Command("getOuterHTML", "Get element HTML") { getOuterHtmlArg };
-        getOuterHtmlCmd.SetHandler(async (endpoint, selector) => await DomGetOuterHtmlAsync(endpoint, selector), endpointOption, getOuterHtmlArg);
-        domCommand.Add(getOuterHtmlCmd);
-        
-        cdpCommand.Add(domCommand);
-        
-        // Page domain commands
-        var pageCommand = new Command("Page", "Page domain commands");
-        
-        var navigateArg = new Argument<string>("url", "URL to navigate to");
-        var navigateCmd = new Command("navigate", "Navigate to URL") { navigateArg };
-        navigateCmd.SetHandler(async (endpoint, url) => await PageNavigateAsync(endpoint, url), endpointOption, navigateArg);
-        pageCommand.Add(navigateCmd);
-        
-        var reloadCmd = new Command("reload", "Reload page");
-        reloadCmd.SetHandler(async (endpoint) => await PageReloadAsync(endpoint), endpointOption);
-        pageCommand.Add(reloadCmd);
-        
-        var captureScreenshotCmd = new Command("captureScreenshot", "Capture page screenshot (base64)");
-        captureScreenshotCmd.SetHandler(async (endpoint) => await PageCaptureScreenshotAsync(endpoint), endpointOption);
-        pageCommand.Add(captureScreenshotCmd);
-        
-        cdpCommand.Add(pageCommand);
-        
-        // Input domain commands
-        var inputCommand = new Command("Input", "Input domain commands");
-        
-        var clickSelectorArg = new Argument<string>("selector", "CSS selector of element to click");
-        var dispatchClickCmd = new Command("dispatchClickEvent", "Click element by selector") { clickSelectorArg };
-        dispatchClickCmd.SetHandler(async (endpoint, selector) => await InputDispatchClickAsync(endpoint, selector), endpointOption, clickSelectorArg);
-        inputCommand.Add(dispatchClickCmd);
-        
-        var insertTextArg = new Argument<string>("text", "Text to insert");
-        var insertTextCmd = new Command("insertText", "Insert text at cursor") { insertTextArg };
-        insertTextCmd.SetHandler(async (endpoint, text) => await InputInsertTextAsync(endpoint, text), endpointOption, insertTextArg);
-        inputCommand.Add(insertTextCmd);
-        
-        var fillSelectorArg = new Argument<string>("selector", "CSS selector");
-        var fillTextArg = new Argument<string>("text", "Text to fill");
-        var fillCmd = new Command("fill", "Fill form field with text") { fillSelectorArg, fillTextArg };
-        fillCmd.SetHandler(async (endpoint, selector, text) => await InputFillAsync(endpoint, selector, text), endpointOption, fillSelectorArg, fillTextArg);
-        inputCommand.Add(fillCmd);
-        
-        cdpCommand.Add(inputCommand);
-        
-        // Convenience commands
-        var statusCmd = new Command("status", "Check CDP connection status");
-        statusCmd.SetHandler(async (endpoint) => await StatusAsync(endpoint), endpointOption);
-        cdpCommand.Add(statusCmd);
-        
-        var snapshotCmd = new Command("snapshot", "Get simplified DOM snapshot with element refs");
-        snapshotCmd.SetHandler(async (endpoint) => await SnapshotAsync(endpoint), endpointOption);
-        cdpCommand.Add(snapshotCmd);
-        
-        rootCommand.Add(cdpCommand);
-        
-        // ===== MAUI Native commands =====
+        // Global agent connection options (shared by MAUI and CDP commands)
         var agentPortOption = new Option<int>(
             ["--agent-port", "-ap"],
             () => 9223,
@@ -135,6 +28,109 @@ class Program
             ["--platform", "-p"],
             () => "maccatalyst",
             "Target platform (maccatalyst, android, ios)");
+
+        // ===== CDP commands (Blazor WebView) =====
+        
+        var cdpCommand = new Command("cdp", "Blazor WebView automation via Chrome DevTools Protocol")
+        {
+            agentHostOption,
+            agentPortOption
+        };
+        
+        // Browser domain commands
+        var browserCommand = new Command("Browser", "Browser domain commands");
+        
+        var getVersionCmd = new Command("getVersion", "Get browser version info");
+        getVersionCmd.SetHandler(async (host, port) => await BrowserGetVersionAsync(host, port), agentHostOption, agentPortOption);
+        browserCommand.Add(getVersionCmd);
+        
+        cdpCommand.Add(browserCommand);
+        
+        // Runtime domain commands  
+        var runtimeCommand = new Command("Runtime", "Runtime domain commands");
+        
+        var evaluateArg = new Argument<string>("expression", "JavaScript expression");
+        var evaluateCmd = new Command("evaluate", "Evaluate JavaScript expression") { evaluateArg };
+        evaluateCmd.SetHandler(async (host, port, expr) => await RuntimeEvaluateAsync(host, port, expr), agentHostOption, agentPortOption, evaluateArg);
+        runtimeCommand.Add(evaluateCmd);
+        
+        cdpCommand.Add(runtimeCommand);
+        
+        // DOM domain commands
+        var domCommand = new Command("DOM", "DOM domain commands");
+        
+        var getDocumentCmd = new Command("getDocument", "Get document root node");
+        getDocumentCmd.SetHandler(async (host, port) => await DomGetDocumentAsync(host, port), agentHostOption, agentPortOption);
+        domCommand.Add(getDocumentCmd);
+        
+        var querySelectorArg = new Argument<string>("selector", "CSS selector");
+        var querySelectorCmd = new Command("querySelector", "Find element by CSS selector") { querySelectorArg };
+        querySelectorCmd.SetHandler(async (host, port, selector) => await DomQuerySelectorAsync(host, port, selector), agentHostOption, agentPortOption, querySelectorArg);
+        domCommand.Add(querySelectorCmd);
+        
+        var querySelectorAllArg = new Argument<string>("selector", "CSS selector");
+        var querySelectorAllCmd = new Command("querySelectorAll", "Find all elements by CSS selector") { querySelectorAllArg };
+        querySelectorAllCmd.SetHandler(async (host, port, selector) => await DomQuerySelectorAllAsync(host, port, selector), agentHostOption, agentPortOption, querySelectorAllArg);
+        domCommand.Add(querySelectorAllCmd);
+        
+        var getOuterHtmlArg = new Argument<string>("selector", "CSS selector");
+        var getOuterHtmlCmd = new Command("getOuterHTML", "Get element HTML") { getOuterHtmlArg };
+        getOuterHtmlCmd.SetHandler(async (host, port, selector) => await DomGetOuterHtmlAsync(host, port, selector), agentHostOption, agentPortOption, getOuterHtmlArg);
+        domCommand.Add(getOuterHtmlCmd);
+        
+        cdpCommand.Add(domCommand);
+        
+        // Page domain commands
+        var pageCommand = new Command("Page", "Page domain commands");
+        
+        var navigateArg = new Argument<string>("url", "URL to navigate to");
+        var navigateCmd = new Command("navigate", "Navigate to URL") { navigateArg };
+        navigateCmd.SetHandler(async (host, port, url) => await PageNavigateAsync(host, port, url), agentHostOption, agentPortOption, navigateArg);
+        pageCommand.Add(navigateCmd);
+        
+        var reloadCmd = new Command("reload", "Reload page");
+        reloadCmd.SetHandler(async (host, port) => await PageReloadAsync(host, port), agentHostOption, agentPortOption);
+        pageCommand.Add(reloadCmd);
+        
+        var captureScreenshotCmd = new Command("captureScreenshot", "Capture page screenshot (base64)");
+        captureScreenshotCmd.SetHandler(async (host, port) => await PageCaptureScreenshotAsync(host, port), agentHostOption, agentPortOption);
+        pageCommand.Add(captureScreenshotCmd);
+        
+        cdpCommand.Add(pageCommand);
+        
+        // Input domain commands
+        var inputCommand = new Command("Input", "Input domain commands");
+        
+        var clickSelectorArg = new Argument<string>("selector", "CSS selector of element to click");
+        var dispatchClickCmd = new Command("dispatchClickEvent", "Click element by selector") { clickSelectorArg };
+        dispatchClickCmd.SetHandler(async (host, port, selector) => await InputDispatchClickAsync(host, port, selector), agentHostOption, agentPortOption, clickSelectorArg);
+        inputCommand.Add(dispatchClickCmd);
+        
+        var insertTextArg = new Argument<string>("text", "Text to insert");
+        var insertTextCmd = new Command("insertText", "Insert text at cursor") { insertTextArg };
+        insertTextCmd.SetHandler(async (host, port, text) => await InputInsertTextAsync(host, port, text), agentHostOption, agentPortOption, insertTextArg);
+        inputCommand.Add(insertTextCmd);
+        
+        var fillSelectorArg = new Argument<string>("selector", "CSS selector");
+        var fillTextArg = new Argument<string>("text", "Text to fill");
+        var fillCmd = new Command("fill", "Fill form field with text") { fillSelectorArg, fillTextArg };
+        fillCmd.SetHandler(async (host, port, selector, text) => await InputFillAsync(host, port, selector, text), agentHostOption, agentPortOption, fillSelectorArg, fillTextArg);
+        inputCommand.Add(fillCmd);
+        
+        cdpCommand.Add(inputCommand);
+        
+        // Convenience commands
+        var statusCmd = new Command("status", "Check CDP connection status");
+        statusCmd.SetHandler(async (host, port) => await CdpStatusAsync(host, port), agentHostOption, agentPortOption);
+        cdpCommand.Add(statusCmd);
+        
+        var snapshotCmd = new Command("snapshot", "Get simplified DOM snapshot with element refs");
+        snapshotCmd.SetHandler(async (host, port) => await SnapshotAsync(host, port), agentHostOption, agentPortOption);
+        cdpCommand.Add(snapshotCmd);
+        
+        rootCommand.Add(cdpCommand);
+        
+        // ===== MAUI Native commands =====
 
         var mauiCommand = new Command("MAUI", "Native MAUI app automation commands")
         {
@@ -239,60 +235,111 @@ class Program
         return await rootCommand.InvokeAsync(args);
     }
     
+    // ===== CDP Helper: Send command via HTTP POST /api/cdp =====
+
+    private static async Task<JsonElement?> SendCdpCommandAsync(string host, int port, string method, object? parameters = null)
+    {
+        using var http = new HttpClient();
+        http.Timeout = TimeSpan.FromSeconds(30);
+
+        var command = new Dictionary<string, object>
+        {
+            ["id"] = 1,
+            ["method"] = method
+        };
+        if (parameters != null)
+            command["params"] = parameters;
+
+        var json = JsonSerializer.Serialize(command);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var response = await http.PostAsync($"http://{host}:{port}/api/cdp", content);
+        var body = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"CDP request failed ({response.StatusCode}): {body}");
+
+        return JsonSerializer.Deserialize<JsonElement>(body);
+    }
+
+    private static async Task<string> CdpEvaluateAsync(string host, int port, string expression)
+    {
+        var result = await SendCdpCommandAsync(host, port, "Runtime.evaluate", new
+        {
+            expression,
+            returnByValue = true
+        });
+
+        if (result == null) return "null";
+        var root = result.Value;
+
+        if (root.TryGetProperty("result", out var evalResult))
+        {
+            if (evalResult.TryGetProperty("result", out var resultProp))
+            {
+                if (resultProp.TryGetProperty("value", out var value))
+                {
+                    if (value.ValueKind == JsonValueKind.String)
+                        return value.GetString() ?? "null";
+                    if (value.ValueKind == JsonValueKind.Object || value.ValueKind == JsonValueKind.Array)
+                        return JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true });
+                    return value.ToString();
+                }
+            }
+            if (evalResult.TryGetProperty("exceptionDetails", out var exception))
+            {
+                var text = exception.TryGetProperty("text", out var t) ? t.GetString() : "Unknown error";
+                return $"Error: {text}";
+            }
+        }
+
+        // Response might be the raw chobitsu response
+        if (root.TryGetProperty("result", out var rawResult) && rawResult.TryGetProperty("value", out var rawValue))
+            return rawValue.GetString() ?? rawValue.ToString();
+
+        return root.ToString();
+    }
+
     // ===== Browser Domain =====
     
-    private static async Task BrowserGetVersionAsync(string endpoint)
+    private static async Task BrowserGetVersionAsync(string host, int port)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.SendCommandAsync("Browser.getVersion");
-            Console.WriteLine(FormatJson(result));
+            var result = await SendCdpCommandAsync(host, port, "Browser.getVersion");
+            Console.WriteLine(result.HasValue ? FormatJson(result.Value) : "null");
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
     // ===== Runtime Domain =====
     
-    private static async Task RuntimeEvaluateAsync(string endpoint, string expression)
+    private static async Task RuntimeEvaluateAsync(string host, int port, string expression)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.EvaluateAsync(expression);
+            var result = await CdpEvaluateAsync(host, port, expression);
             Console.WriteLine(result);
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
     // ===== DOM Domain =====
     
-    private static async Task DomGetDocumentAsync(string endpoint)
+    private static async Task DomGetDocumentAsync(string host, int port)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.SendCommandAsync("DOM.getDocument");
-            Console.WriteLine(FormatJson(result));
+            var result = await SendCdpCommandAsync(host, port, "DOM.getDocument");
+            Console.WriteLine(result.HasValue ? FormatJson(result.Value) : "null");
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
-    private static async Task DomQuerySelectorAsync(string endpoint, string selector)
+    private static async Task DomQuerySelectorAsync(string host, int port, string selector)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.EvaluateAsync($@"
+            var result = await CdpEvaluateAsync(host, port, $@"
                 JSON.stringify((function() {{
                     const el = document.querySelector({JsonSerializer.Serialize(selector)});
                     if (!el) return null;
@@ -306,18 +353,14 @@ class Program
             ");
             Console.WriteLine(result);
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
-    private static async Task DomQuerySelectorAllAsync(string endpoint, string selector)
+    private static async Task DomQuerySelectorAllAsync(string host, int port, string selector)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.EvaluateAsync($@"
+            var result = await CdpEvaluateAsync(host, port, $@"
                 JSON.stringify((function() {{
                     const els = document.querySelectorAll({JsonSerializer.Serialize(selector)});
                     return Array.from(els).map((el, i) => ({{
@@ -331,87 +374,67 @@ class Program
             ");
             Console.WriteLine(result);
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
-    private static async Task DomGetOuterHtmlAsync(string endpoint, string selector)
+    private static async Task DomGetOuterHtmlAsync(string host, int port, string selector)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.EvaluateAsync($@"document.querySelector({JsonSerializer.Serialize(selector)})?.outerHTML || null");
+            var result = await CdpEvaluateAsync(host, port, $@"document.querySelector({JsonSerializer.Serialize(selector)})?.outerHTML || null");
             Console.WriteLine(result);
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
     // ===== Page Domain =====
     
-    private static async Task PageNavigateAsync(string endpoint, string url)
+    private static async Task PageNavigateAsync(string host, int port, string url)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.SendCommandAsync("Page.navigate", new { url });
+            await SendCdpCommandAsync(host, port, "Page.navigate", new { url });
             Console.WriteLine($"Navigated to: {url}");
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
-    private static async Task PageReloadAsync(string endpoint)
+    private static async Task PageReloadAsync(string host, int port)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            await client.SendCommandAsync("Page.reload");
+            await SendCdpCommandAsync(host, port, "Page.reload");
             Console.WriteLine("Page reloaded");
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
-    private static async Task PageCaptureScreenshotAsync(string endpoint)
+    private static async Task PageCaptureScreenshotAsync(string host, int port)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.SendCommandAsync("Page.captureScreenshot");
-            
-            if (result.TryGetProperty("result", out var resultProp) && 
+            var result = await SendCdpCommandAsync(host, port, "Page.captureScreenshot");
+            if (result.HasValue &&
+                result.Value.TryGetProperty("result", out var resultProp) && 
                 resultProp.TryGetProperty("data", out var dataProp))
             {
                 Console.WriteLine(dataProp.GetString());
             }
             else
             {
-                Console.WriteLine(FormatJson(result));
+                Console.WriteLine(result.HasValue ? FormatJson(result.Value) : "null");
             }
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
     // ===== Input Domain =====
     
-    private static async Task InputDispatchClickAsync(string endpoint, string selector)
+    private static async Task InputDispatchClickAsync(string host, int port, string selector)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.EvaluateAsync($@"
+            var result = await CdpEvaluateAsync(host, port, $@"
                 (function() {{
                     const el = document.querySelector({JsonSerializer.Serialize(selector)});
                     if (!el) return 'Error: Element not found';
@@ -421,49 +444,24 @@ class Program
             ");
             Console.WriteLine(result);
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
-    private static async Task InputInsertTextAsync(string endpoint, string text)
+    private static async Task InputInsertTextAsync(string host, int port, string text)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.EvaluateAsync($@"
-                (function() {{
-                    const el = document.activeElement;
-                    if (!el) return 'Error: No element focused';
-                    if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && !el.isContentEditable) {{
-                        return 'Error: Focused element is not editable';
-                    }}
-                    
-                    const text = {JsonSerializer.Serialize(text)};
-                    if (el.isContentEditable) {{
-                        el.textContent += text;
-                    }} else {{
-                        el.value += text;
-                    }}
-                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    return 'Inserted: ' + text.length + ' characters';
-                }})()
-            ");
-            Console.WriteLine(result);
+            var result = await SendCdpCommandAsync(host, port, "Input.insertText", new { text });
+            Console.WriteLine($"Inserted: {text.Length} characters");
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
-    private static async Task InputFillAsync(string endpoint, string selector, string text)
+    private static async Task InputFillAsync(string host, int port, string selector, string text)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.EvaluateAsync($@"
+            var result = await CdpEvaluateAsync(host, port, $@"
                 (function() {{
                     const el = document.querySelector({JsonSerializer.Serialize(selector)});
                     if (!el) return 'Error: Element not found';
@@ -482,30 +480,24 @@ class Program
             ");
             Console.WriteLine(result);
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
     // ===== Convenience Commands =====
     
-    private static async Task StatusAsync(string endpoint)
+    private static async Task CdpStatusAsync(string host, int port)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            var result = await client.SendCommandAsync("Browser.getVersion");
-            
-            if (result.TryGetProperty("result", out var versionResult))
-            {
-                var product = versionResult.TryGetProperty("product", out var p) ? p.GetString() : "unknown";
-                Console.WriteLine($"Connected: {product}");
-            }
-            else
-            {
-                Console.WriteLine("Connected");
-            }
+            using var http = new HttpClient();
+            http.Timeout = TimeSpan.FromSeconds(5);
+            var response = await http.GetAsync($"http://{host}:{port}/api/status");
+            var body = await response.Content.ReadAsStringAsync();
+            var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+
+            var cdpReady = root.TryGetProperty("cdpReady", out var cdpProp) && cdpProp.GetBoolean();
+            Console.WriteLine(cdpReady ? "Connected: CDP ready" : "Agent connected but CDP not ready");
         }
         catch (Exception ex)
         {
@@ -513,13 +505,11 @@ class Program
         }
     }
     
-    private static async Task SnapshotAsync(string endpoint)
+    private static async Task SnapshotAsync(string host, int port)
     {
         try
         {
-            using var client = await CdpClient.ConnectAsync(endpoint);
-            
-            var result = await client.EvaluateAsync(@"
+            var result = await CdpEvaluateAsync(host, port, @"
                 (function() {
                     function walk(node, depth) {
                         if (depth > 8) return '';
@@ -559,10 +549,7 @@ class Program
             
             Console.WriteLine(result);
         }
-        catch (Exception ex)
-        {
-            WriteError(ex.Message);
-        }
+        catch (Exception ex) { WriteError(ex.Message); }
     }
     
     private static void WriteError(string message)
@@ -905,185 +892,5 @@ class Program
             if (el.Children != null)
                 PrintTree(el.Children, indent + 1);
         }
-    }
-}
-
-/// <summary>
-/// CDP WebSocket client for communicating with the debug bridge.
-/// </summary>
-class CdpClient : IDisposable
-{
-    private readonly ClientWebSocket _ws;
-    private readonly string _endpoint;
-    private int _messageId = 1;
-    private string? _sessionId;
-    private readonly Dictionary<int, TaskCompletionSource<JsonElement>> _pending = new();
-    private readonly CancellationTokenSource _cts = new();
-    
-    private CdpClient(string endpoint)
-    {
-        _endpoint = endpoint;
-        _ws = new ClientWebSocket();
-    }
-    
-    public static async Task<CdpClient> ConnectAsync(string endpoint)
-    {
-        var client = new CdpClient(endpoint);
-        await client.ConnectInternalAsync();
-        return client;
-    }
-    
-    private async Task ConnectInternalAsync()
-    {
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        await _ws.ConnectAsync(new Uri(_endpoint), cts.Token);
-        
-        // Start message pump
-        _ = Task.Run(MessagePumpAsync);
-        
-        // Initialize session
-        await SendCommandAsync("Browser.getVersion");
-        await SendCommandAsync("Target.setAutoAttach", new { 
-            autoAttach = true, 
-            waitForDebuggerOnStart = false, 
-            flatten = true 
-        });
-        
-        // Wait for attachedToTarget event (with timeout)
-        var waitStart = DateTime.UtcNow;
-        while (_sessionId == null && DateTime.UtcNow - waitStart < TimeSpan.FromSeconds(5))
-        {
-            await Task.Delay(50);
-        }
-    }
-    
-    private async Task MessagePumpAsync()
-    {
-        var buffer = new byte[1024 * 1024]; // 1MB buffer
-        
-        try
-        {
-            while (_ws.State == WebSocketState.Open && !_cts.IsCancellationRequested)
-            {
-                var result = await _ws.ReceiveAsync(buffer, _cts.Token);
-                if (result.MessageType == WebSocketMessageType.Close)
-                    break;
-                
-                var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                
-                try
-                {
-                    var doc = JsonDocument.Parse(json);
-                    var root = doc.RootElement;
-                    
-                    // Handle response
-                    if (root.TryGetProperty("id", out var idProp))
-                    {
-                        var id = idProp.GetInt32();
-                        if (_pending.TryGetValue(id, out var tcs))
-                        {
-                            _pending.Remove(id);
-                            tcs.SetResult(root.Clone());
-                        }
-                    }
-                    
-                    // Handle events
-                    if (root.TryGetProperty("method", out var methodProp))
-                    {
-                        var method = methodProp.GetString();
-                        if (method == "Target.attachedToTarget" && root.TryGetProperty("params", out var parms))
-                        {
-                            if (parms.TryGetProperty("sessionId", out var sid))
-                            {
-                                _sessionId = sid.GetString();
-                            }
-                        }
-                    }
-                }
-                catch
-                {
-                    // Ignore parse errors
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Normal shutdown
-        }
-        catch
-        {
-            // Connection closed
-        }
-    }
-    
-    public async Task<string> EvaluateAsync(string expression)
-    {
-        var result = await SendCommandAsync("Runtime.evaluate", new { 
-            expression,
-            returnByValue = true
-        }, _sessionId);
-        
-        if (result.TryGetProperty("result", out var evalResult))
-        {
-            if (evalResult.TryGetProperty("result", out var resultProp))
-            {
-                if (resultProp.TryGetProperty("value", out var value))
-                {
-                    if (value.ValueKind == JsonValueKind.String)
-                        return value.GetString() ?? "null";
-                    if (value.ValueKind == JsonValueKind.Object || value.ValueKind == JsonValueKind.Array)
-                        return JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true });
-                    return value.ToString();
-                }
-            }
-            
-            if (evalResult.TryGetProperty("exceptionDetails", out var exception))
-            {
-                var text = exception.TryGetProperty("text", out var t) ? t.GetString() : "Unknown error";
-                return $"Error: {text}";
-            }
-        }
-        
-        return "undefined";
-    }
-    
-    public async Task<JsonElement> SendCommandAsync(string method, object? parameters = null, string? sessionId = null)
-    {
-        var id = _messageId++;
-        var tcs = new TaskCompletionSource<JsonElement>();
-        _pending[id] = tcs;
-        
-        var message = new Dictionary<string, object>
-        {
-            ["id"] = id,
-            ["method"] = method
-        };
-        
-        if (parameters != null)
-            message["params"] = parameters;
-        if (sessionId != null)
-            message["sessionId"] = sessionId;
-        
-        var json = JsonSerializer.Serialize(message);
-        var bytes = Encoding.UTF8.GetBytes(json);
-        await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
-        
-        // Wait with timeout
-        var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
-        var completedTask = await Task.WhenAny(tcs.Task, timeoutTask);
-        
-        if (completedTask == timeoutTask)
-        {
-            _pending.Remove(id);
-            throw new TimeoutException($"CDP command {method} timed out");
-        }
-        
-        return await tcs.Task;
-    }
-    
-    public void Dispose()
-    {
-        _cts.Cancel();
-        _ws.Dispose();
     }
 }

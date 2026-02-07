@@ -20,6 +20,15 @@ public class DevFlowAgentService : IDisposable
     private IDispatcher? _dispatcher;
     private bool _disposed;
 
+    /// <summary>
+    /// Delegate for sending CDP commands to the Blazor WebView.
+    /// Set by the Blazor package when both are registered.
+    /// </summary>
+    public Func<string, Task<string>>? CdpCommandHandler { get; set; }
+
+    /// <summary>Whether the CDP handler is ready to process commands.</summary>
+    public Func<bool>? CdpReadyCheck { get; set; }
+
     public bool IsRunning => _server.IsRunning;
     public int Port => _options.Port;
 
@@ -76,6 +85,7 @@ public class DevFlowAgentService : IDisposable
         _server.MapPost("/api/action/focus", HandleFocus);
         _server.MapPost("/api/action/navigate", HandleNavigate);
         _server.MapGet("/api/logs", HandleLogs);
+        _server.MapPost("/api/cdp", HandleCdp);
     }
 
     private Task<HttpResponse> HandleStatus(HttpRequest request)
@@ -88,7 +98,8 @@ public class DevFlowAgentService : IDisposable
             deviceType = DeviceInfo.Current.DeviceType.ToString(),
             idiom = DeviceInfo.Current.Idiom.ToString(),
             appName = _app?.GetType().Assembly.GetName().Name ?? "unknown",
-            running = _app != null
+            running = _app != null,
+            cdpReady = CdpReadyCheck?.Invoke() ?? false
         }));
     }
 
@@ -404,6 +415,32 @@ public class DevFlowAgentService : IDisposable
 
         var entries = _logProvider.Reader.Read(limit, skip);
         return Task.FromResult(HttpResponse.Json(entries));
+    }
+
+    private async Task<HttpResponse> HandleCdp(HttpRequest request)
+    {
+        if (CdpCommandHandler == null)
+            return HttpResponse.Error("CDP not available (Blazor debug service not registered)");
+
+        if (!(CdpReadyCheck?.Invoke() ?? false))
+            return HttpResponse.Error("CDP not ready (WebView not initialized)");
+
+        if (string.IsNullOrEmpty(request.Body))
+            return HttpResponse.Error("Missing CDP command body");
+
+        try
+        {
+            var result = await CdpCommandHandler(request.Body);
+            return new HttpResponse
+            {
+                ContentType = "application/json",
+                Body = result
+            };
+        }
+        catch (Exception ex)
+        {
+            return HttpResponse.Error($"CDP command failed: {ex.Message}");
+        }
     }
 }
 

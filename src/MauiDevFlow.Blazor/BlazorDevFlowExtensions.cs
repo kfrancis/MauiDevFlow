@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Hosting;
 using Microsoft.Maui.LifecycleEvents;
 
@@ -22,13 +23,14 @@ public static class BlazorDevFlowExtensions
         if (!options.Enabled) return builder;
 
 #if ANDROID
-        var service = new BlazorWebViewDebugService(options.Port);
+        var service = new BlazorWebViewDebugService();
         if (options.EnableLogging)
         {
             service.LogCallback = (msg) => System.Diagnostics.Debug.WriteLine(msg);
         }
 
         builder.Services.AddSingleton(service);
+        builder.Services.AddSingleton<BlazorWebViewDebugServiceBase>(sp => sp.GetRequiredService<BlazorWebViewDebugService>());
 
         service.ConfigureHandler();
 
@@ -38,22 +40,21 @@ public static class BlazorDevFlowExtensions
             {
                 android.OnResume(activity =>
                 {
-                    if (!service.IsRunning)
-                    {
-                        service.Start();
-                        System.Diagnostics.Debug.WriteLine($"[MauiDevFlow] Blazor CDP bridge started on port {options.Port}");
-                    }
+                    service.Initialize();
+                    WireAgentCdp(service);
+                    System.Diagnostics.Debug.WriteLine("[MauiDevFlow] Blazor CDP initialized");
                 });
             });
         });
 #elif IOS || MACCATALYST
-        var service = new BlazorWebViewDebugService(options.Port);
+        var service = new BlazorWebViewDebugService();
         if (options.EnableLogging)
         {
             service.LogCallback = (msg) => System.Diagnostics.Debug.WriteLine(msg);
         }
 
         builder.Services.AddSingleton(service);
+        builder.Services.AddSingleton<BlazorWebViewDebugServiceBase>(sp => sp.GetRequiredService<BlazorWebViewDebugService>());
 
         // Configure handler to capture WebView reference
         service.ConfigureHandler();
@@ -64,8 +65,9 @@ public static class BlazorDevFlowExtensions
             {
                 ios.FinishedLaunching((_, _) =>
                 {
-                    service.Start();
-                    System.Diagnostics.Debug.WriteLine($"[MauiDevFlow] Blazor CDP bridge started on port {options.Port}");
+                    service.Initialize();
+                    WireAgentCdp(service);
+                    System.Diagnostics.Debug.WriteLine("[MauiDevFlow] Blazor CDP initialized");
                     return true;
                 });
             });
@@ -73,5 +75,81 @@ public static class BlazorDevFlowExtensions
 #endif
 
         return builder;
+    }
+
+    /// <summary>
+    /// Wire the Blazor CDP service to the Agent's /api/cdp endpoint via reflection.
+    /// Uses reflection to avoid a direct package dependency from Blazor → Agent.
+    /// </summary>
+    private static void WireAgentCdp(BlazorWebViewDebugServiceBase blazorService)
+    {
+        // Delay to let the agent start first
+        Task.Run(async () =>
+        {
+            await Task.Delay(1000);
+            try
+            {
+                var app = Microsoft.Maui.Controls.Application.Current;
+                if (app == null) return;
+
+                // Find DevFlowAgentService via reflection to avoid package dependency
+                var handler = app.Handler;
+                var services = handler?.MauiContext?.Services;
+                if (services == null) return;
+
+                // Look for the agent service by type name
+                foreach (var svcDescriptor in services.GetServices<object>())
+                {
+                    // Skip non-agent types
+                }
+
+                // Try to get the agent service directly by its well-known type
+                var agentType = Type.GetType("MauiDevFlow.Agent.DevFlowAgentService, MauiDevFlow.Agent");
+                if (agentType == null)
+                {
+                    // Try scanning loaded assemblies
+                    foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        agentType = asm.GetType("MauiDevFlow.Agent.DevFlowAgentService");
+                        if (agentType != null) break;
+                    }
+                }
+
+                if (agentType == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[MauiDevFlow] Agent service type not found - CDP endpoint won't be available");
+                    return;
+                }
+
+                var agentService = services.GetService(agentType);
+                if (agentService == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[MauiDevFlow] Agent service not registered - CDP endpoint won't be available");
+                    return;
+                }
+
+                // Set CdpCommandHandler = blazorService.SendCdpCommandAsync
+                var handlerProp = agentType.GetProperty("CdpCommandHandler");
+                var readyProp = agentType.GetProperty("CdpReadyCheck");
+
+                if (handlerProp != null)
+                {
+                    var handler2 = new Func<string, Task<string>>(blazorService.SendCdpCommandAsync);
+                    handlerProp.SetValue(agentService, handler2);
+                }
+
+                if (readyProp != null)
+                {
+                    var readyCheck = new Func<bool>(() => blazorService.IsReady);
+                    readyProp.SetValue(agentService, readyCheck);
+                }
+
+                System.Diagnostics.Debug.WriteLine("[MauiDevFlow] Blazor CDP wired to Agent /api/cdp endpoint");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MauiDevFlow] Failed to wire CDP to Agent: {ex.Message}");
+            }
+        });
     }
 }

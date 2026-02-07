@@ -2,16 +2,11 @@ namespace MauiDevFlow.Blazor;
 
 /// <summary>
 /// Configuration options for BlazorWebView debug tools.
-/// Enables Chrome DevTools Protocol (CDP) connections to the BlazorWebView.
+/// Enables Chrome DevTools Protocol (CDP) access to the BlazorWebView
+/// via the agent's HTTP API (POST /api/cdp).
 /// </summary>
 public class BlazorWebViewDebugOptions
 {
-    /// <summary>
-    /// The port for the CDP WebSocket server. Default: 9222
-    /// This is the standard Chrome DevTools Protocol port.
-    /// </summary>
-    public int Port { get; set; } = 9222;
-
     /// <summary>
     /// Whether debug tools are enabled. Default: true
     /// Set to false to disable in production builds.

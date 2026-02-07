@@ -14,7 +14,7 @@ public class BlazorWebViewDebugService : BlazorWebViewDebugServiceBase
 {
     private AWebView? _webView;
 
-    public BlazorWebViewDebugService(int port = 9222) : base(port) { }
+    public BlazorWebViewDebugService() { }
 
     protected override bool HasWebView => _webView != null;
 

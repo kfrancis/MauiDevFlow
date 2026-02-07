@@ -13,15 +13,8 @@ public class AndroidAppDriver : AppDriverBase
     protected override async Task SetupPlatformAsync(string host, int port)
     {
         // Set up adb reverse port forwarding so the device/emulator can reach localhost
+        // Both MAUI native and CDP use the same port
         await RunAdbAsync($"reverse tcp:{port} tcp:{port}");
-        
-        // Also forward the CDP port (9222) for Blazor WebView debugging
-        const int cdpPort = 9222;
-        if (port != cdpPort)
-        {
-            try { await RunAdbAsync($"reverse tcp:{cdpPort} tcp:{cdpPort}"); }
-            catch { /* CDP port forwarding is optional — Blazor may not be configured */ }
-        }
     }
 
     public override async Task BackAsync()

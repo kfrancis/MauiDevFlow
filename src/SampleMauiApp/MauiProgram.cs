@@ -30,7 +30,7 @@ public static class MauiProgram
 		//builder.Services.AddBlazorWebViewDeveloperTools();
 		builder.Logging.AddDebug();
 		builder.AddMauiDevFlowAgent(options => { options.Port = 9223; });
-		builder.AddMauiBlazorDevFlowTools(options => { options.Port = 9222; });
+		builder.AddMauiBlazorDevFlowTools();
 #endif
 
 		return builder.Build();

@@ -2,30 +2,23 @@ namespace MauiDevFlow.Blazor;
 
 /// <summary>
 /// Base class for BlazorWebView debug services. Contains all shared logic for
-/// the CDP bridge (message routing, polling, script injection). Platform-specific
+/// CDP command handling and script injection. Platform-specific
 /// subclasses provide the WebView capture and JavaScript evaluation.
 /// </summary>
 public abstract class BlazorWebViewDebugServiceBase : IDisposable
 {
-    private readonly ChobitsuWebSocketBridge _bridge;
     protected bool IsInitialized;
     private bool _disposed;
+    private bool _injecting;
 
     /// <summary>Optional log callback for debug messages.</summary>
     public Action<string>? LogCallback { get; set; }
 
-    public bool IsRunning => _bridge.IsRunning;
-    public int Port => _bridge.Port;
-    public int ConnectionCount => _bridge.ConnectionCount;
+    public bool IsReady => IsInitialized && HasWebView && _chobitsuLoaded;
 
-    protected BlazorWebViewDebugServiceBase(int port = 9222)
-    {
-        _bridge = new ChobitsuWebSocketBridge(port);
-        _bridge.LogCallback = (msg) => Log(msg);
-        _bridge.OnMessageFromClient += HandleMessageFromClient;
-        _bridge.OnClientConnected += (id) => Log($"[BlazorDevFlow] Client connected: {id}");
-        _bridge.OnClientDisconnected += (id) => Log($"[BlazorDevFlow] Client disconnected: {id}");
-    }
+    private bool _chobitsuLoaded;
+
+    protected BlazorWebViewDebugServiceBase() { }
 
     /// <summary>
     /// Evaluates JavaScript in the WebView and returns the result.
@@ -48,18 +41,8 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
     /// </summary>
     public abstract void ConfigureHandler();
 
-    public void Start()
+    public void Initialize()
     {
-        if (IsRunning)
-        {
-            Log("[BlazorDevFlow] Start called but already running");
-            return;
-        }
-
-        Log("[BlazorDevFlow] Starting bridge...");
-        _bridge.Start();
-        Log($"[BlazorDevFlow] Bridge started, IsRunning={IsRunning}");
-
         if (IsInitialized && HasWebView)
         {
             Log("[BlazorDevFlow] WebView already initialized, injecting now");
@@ -68,12 +51,6 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
                 await InjectDebugScriptAsync();
             });
         }
-    }
-
-    public async Task StopAsync()
-    {
-        Log("[BlazorDevFlow] Stopping...");
-        await _bridge.StopAsync();
     }
 
     /// <summary>
@@ -86,18 +63,9 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
         Log("[BlazorDevFlow] Waiting 2s for page to load...");
         await Task.Delay(2000);
 
-        if (IsRunning)
-        {
-            Log("[BlazorDevFlow] Server is running, injecting debug script...");
-            await InjectDebugScriptAsync();
-        }
-        else
-        {
-            Log("[BlazorDevFlow] Server not running, skipping injection");
-        }
+        Log("[BlazorDevFlow] Injecting debug script...");
+        await InjectDebugScriptAsync();
     }
-
-    private bool _injecting;
 
     private async Task InjectDebugScriptAsync()
     {
@@ -153,15 +121,14 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
             await Task.Delay(500);
         }
 
-        var script = ChobitsuDebugScript.GetInjectionScript(_bridge.Port);
+        var script = ChobitsuDebugScript.GetInjectionScript();
         Log($"[BlazorDevFlow] Injecting init script ({script.Length} chars)...");
 
         try
         {
             var result = await EvaluateJavaScriptAsync(script);
             Log($"[BlazorDevFlow] Script injection result: {result?.ToString() ?? "null"}");
-
-            await SetupResponseHandlerAsync();
+            _chobitsuLoaded = true;
         }
         catch (Exception ex)
         {
@@ -169,137 +136,158 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
         }
     }
 
-    private void HandleMessageFromClient(string connectionId, string message)
+    /// <summary>
+    /// Sends a CDP command to chobitsu and returns the response synchronously via a single JS eval.
+    /// Handles special methods (Input.insertText, Page.reload, Page.navigate, Browser.*) natively.
+    /// </summary>
+    public async Task<string> SendCdpCommandAsync(string cdpJson)
     {
-        Log($"[BlazorDevFlow] Message from client {connectionId}: {message.Substring(0, Math.Min(100, message.Length))}...");
+        if (!IsReady)
+            return "{\"error\":\"WebView not ready\"}";
 
-        if (!HasWebView || !IsInitialized)
+        try
         {
-            Log("[BlazorDevFlow] Cannot forward message - WebView not ready");
-            return;
-        }
+            var json = System.Text.Json.JsonDocument.Parse(cdpJson);
+            var id = json.RootElement.TryGetProperty("id", out var idProp) ? idProp.GetInt32() : 0;
+            var method = json.RootElement.TryGetProperty("method", out var methodProp) ? methodProp.GetString() ?? "" : "";
 
-        if (message.Contains("\"method\":\"Input.insertText\""))
-        {
-            MainThread.BeginInvokeOnMainThread(async () =>
+            // Handle methods that need native implementation
+            if (method == "Input.insertText")
+                return await HandleInputInsertTextAsync(cdpJson, id);
+            if (method == "Page.reload")
+                return await HandlePageReloadAsync(id);
+            if (method == "Page.navigate")
+                return await HandlePageNavigateAsync(cdpJson, id);
+            if (method.StartsWith("Browser."))
+                return HandleBrowserMethod(method, id);
+
+            // Send to chobitsu and get response via two JS evals
+            // (chobitsu fires onMessage asynchronously, not in the same JS turn)
+            var escaped = cdpJson.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "\\r");
+            var sendScript = ScriptResources.Load("cdp-send-receive.js")
+                .Replace("%CDP_MESSAGE%", escaped);
+            var readScript = ScriptResources.Load("cdp-read-response.js");
+
+            Log($"[BlazorDevFlow] SendCdpCommand: method={method}");
+
+            // First eval: send the command and set up response capture
+            var sendResult = await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                await HandleInputInsertTextAsync(message);
+                return await EvaluateJavaScriptAsync(sendScript);
             });
-            return;
-        }
 
-        if (message.Contains("\"method\":\"Page.reload\""))
-        {
-            MainThread.BeginInvokeOnMainThread(async () =>
-            {
-                await HandlePageReloadAsync(message);
-            });
-            return;
-        }
+            // Brief delay for chobitsu to process (it uses microtasks internally)
+            await Task.Delay(50);
 
-        if (message.Contains("\"method\":\"Page.navigate\""))
-        {
-            MainThread.BeginInvokeOnMainThread(async () =>
+            // Second eval: read the captured response (with retries)
+            string? result = null;
+            for (int i = 0; i < 60; i++) // up to 3 seconds
             {
-                await HandlePageNavigateAsync(message);
-            });
-            return;
-        }
+                result = await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    return await EvaluateJavaScriptAsync(readScript);
+                });
 
-        MainThread.BeginInvokeOnMainThread(async () =>
-        {
-            try
-            {
-                var handlerScript = ChobitsuDebugScript.GetMessageHandlerScript(message);
-                await EvaluateJavaScriptAsync(handlerScript);
-                Log("[BlazorDevFlow] Message forwarded to WebView");
+                var unescaped = UnescapeEvalResult(result);
+                if (unescaped != null)
+                {
+                    Log($"[BlazorDevFlow] SendCdpCommand got response after {i + 1} poll(s)");
+                    return unescaped;
+                }
+
+                await Task.Delay(50);
             }
-            catch (Exception ex)
+
+            Log($"[BlazorDevFlow] SendCdpCommand: no response after polling");
+            return "{\"error\":\"cdp timeout\"}";
+        }
+        catch (Exception ex)
+        {
+            LogError("[BlazorDevFlow] SendCdpCommandAsync failed", ex);
+            return $"{{\"error\":\"{EscapeJsonString(ex.Message)}\"}}";
+        }
+    }
+
+    private string HandleBrowserMethod(string method, int id)
+    {
+        if (method == "Browser.getVersion")
+            return System.Text.Json.JsonSerializer.Serialize(new
             {
-                LogError("[BlazorDevFlow] Failed to forward message", ex);
-            }
+                id,
+                result = new
+                {
+                    protocolVersion = "1.3",
+                    product = "MAUI Blazor WebView/1.0",
+                    userAgent = "MauiDevFlow",
+                    jsVersion = ""
+                }
+            });
+
+        return $"{{\"id\":{id},\"result\":{{}}}}";
+    }
+
+    private async Task<string> HandleInputInsertTextAsync(string cdpJson, int id)
+    {
+        var json = System.Text.Json.JsonDocument.Parse(cdpJson);
+        var text = json.RootElement.GetProperty("params").GetProperty("text").GetString() ?? "";
+        var escapedText = EscapeJsString(text);
+
+        var script = ScriptResources.Load("insert-text.js")
+            .Replace("%TEXT%", escapedText)
+            .Replace("%TEXT_LENGTH%", text.Length.ToString());
+
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            await EvaluateJavaScriptAsync(script);
         });
+
+        return $"{{\"id\":{id},\"result\":{{}}}}";
     }
 
-    private async Task HandleInputInsertTextAsync(string message)
+    private async Task<string> HandlePageReloadAsync(int id)
     {
-        try
+        await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            var json = System.Text.Json.JsonDocument.Parse(message);
-            var id = json.RootElement.GetProperty("id").GetInt32();
-            var text = json.RootElement.GetProperty("params").GetProperty("text").GetString() ?? "";
-
-            Log($"[BlazorDevFlow] Input.insertText: '{text}'");
-
-            var escapedText = EscapeJsString(text);
-            var textLength = text.Length;
-
-            var script = ScriptResources.Load("insert-text.js")
-                .Replace("%TEXT%", escapedText)
-                .Replace("%TEXT_LENGTH%", textLength.ToString());
-
-            var result = await EvaluateJavaScriptAsync(script);
-            Log($"[BlazorDevFlow] insertText result: {result}");
-
-            var response = $"{{\"id\":{id},\"result\":{{}}}}";
-            await _bridge.SendToClientsAsync(response);
-        }
-        catch (Exception ex)
-        {
-            LogError("[BlazorDevFlow] Failed to handle Input.insertText", ex);
-        }
-    }
-
-    private async Task HandlePageReloadAsync(string message)
-    {
-        try
-        {
-            var json = System.Text.Json.JsonDocument.Parse(message);
-            var id = json.RootElement.GetProperty("id").GetInt32();
-
-            Log("[BlazorDevFlow] Page.reload: reloading via native WebView API");
-
             ReloadWebView();
-            await Task.Delay(1500);
-
-            Log("[BlazorDevFlow] Page.reload: re-injecting debug script after reload");
-            await InjectDebugScriptAsync();
-
-            var response = $"{{\"id\":{id},\"result\":{{}}}}";
-            await _bridge.SendToClientsAsync(response);
-            Log("[BlazorDevFlow] Page.reload: complete");
-        }
-        catch (Exception ex)
+        });
+        await Task.Delay(1500);
+        await MainThread.InvokeOnMainThreadAsync(async () =>
         {
-            LogError("[BlazorDevFlow] Failed to handle Page.reload", ex);
-        }
+            await InjectDebugScriptAsync();
+        });
+
+        return $"{{\"id\":{id},\"result\":{{}}}}";
     }
 
-    private async Task HandlePageNavigateAsync(string message)
+    private async Task<string> HandlePageNavigateAsync(string cdpJson, int id)
     {
-        try
+        var json = System.Text.Json.JsonDocument.Parse(cdpJson);
+        var url = json.RootElement.GetProperty("params").GetProperty("url").GetString() ?? "";
+
+        await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            var json = System.Text.Json.JsonDocument.Parse(message);
-            var id = json.RootElement.GetProperty("id").GetInt32();
-            var url = json.RootElement.GetProperty("params").GetProperty("url").GetString() ?? "";
-
-            Log($"[BlazorDevFlow] Page.navigate: navigating to {url} via native WebView API");
-
             NavigateWebView(url);
-            await Task.Delay(1500);
-
-            Log("[BlazorDevFlow] Page.navigate: re-injecting debug script after navigation");
-            await InjectDebugScriptAsync();
-
-            var frameId = "main";
-            var response = $"{{\"id\":{id},\"result\":{{\"frameId\":\"{frameId}\"}}}}";
-            await _bridge.SendToClientsAsync(response);
-            Log("[BlazorDevFlow] Page.navigate: complete");
-        }
-        catch (Exception ex)
+        });
+        await Task.Delay(1500);
+        await MainThread.InvokeOnMainThreadAsync(async () =>
         {
-            LogError("[BlazorDevFlow] Failed to handle Page.navigate", ex);
+            await InjectDebugScriptAsync();
+        });
+
+        return $"{{\"id\":{id},\"result\":{{\"frameId\":\"main\"}}}}";
+    }
+
+    /// <summary>Unescape the JSON-encoded string returned by EvaluateJavaScriptAsync.</summary>
+    private static string? UnescapeEvalResult(string? result)
+    {
+        if (string.IsNullOrEmpty(result)) return null;
+        // WKWebView wraps string results in quotes and escapes inner quotes
+        if (result.StartsWith("\"") && result.EndsWith("\""))
+        {
+            try { return System.Text.Json.JsonSerializer.Deserialize<string>(result); }
+            catch { /* fall through */ }
         }
+        return result;
     }
 
     private static string EscapeJsString(string s)
@@ -312,79 +300,9 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
                 .Replace("\t", "\\t");
     }
 
-    private async Task SetupResponseHandlerAsync()
+    private static string EscapeJsonString(string s)
     {
-        Log("[BlazorDevFlow] Setting up response handler...");
-
-        var checkScript = ScriptResources.Load("setup-response-handler.js");
-
-        var result = await EvaluateJavaScriptAsync(checkScript);
-        Log($"[BlazorDevFlow] Response handler check result: {result?.ToString() ?? "null"}");
-
-        Log("[BlazorDevFlow] Starting response polling loop...");
-        _ = PollForResponsesAsync();
-    }
-
-    private async Task PollForResponsesAsync()
-    {
-        int pollCount = 0;
-
-        while (IsRunning && IsInitialized && !_disposed && HasWebView)
-        {
-            try
-            {
-                var pollScript = ScriptResources.Load("poll-responses.js");
-
-                var result = await MainThread.InvokeOnMainThreadAsync(async () =>
-                {
-                    return (await EvaluateJavaScriptAsync(pollScript))?.ToString() ?? "[]";
-                });
-
-                if (pollCount < 10 || (result != "[]" && result != "\"[]\""))
-                {
-                    Log($"[BlazorDevFlow] Poll #{pollCount} raw result: [{result}]");
-                }
-
-                if (!string.IsNullOrEmpty(result) && result != "[]" && result != "\"[]\"")
-                {
-                    Log($"[BlazorDevFlow] Poll got non-empty: {result.Substring(0, Math.Min(300, result.Length))}");
-
-                    var trimmed = result;
-                    if (trimmed.StartsWith("\"") && trimmed.EndsWith("\""))
-                    {
-                        trimmed = trimmed.Substring(1, trimmed.Length - 2);
-                        trimmed = trimmed.Replace("\\\"", "\"").Replace("\\\\", "\\");
-                    }
-
-                    if (trimmed.StartsWith("[") && trimmed != "[]")
-                    {
-                        try
-                        {
-                            var messages = System.Text.Json.JsonSerializer.Deserialize<string[]>(trimmed);
-                            if (messages != null)
-                            {
-                                foreach (var msg in messages)
-                                {
-                                    await _bridge.SendToClientsAsync(msg);
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            LogError("[BlazorDevFlow] JSON deserialize failed", ex);
-                        }
-                    }
-                }
-
-                pollCount++;
-            }
-            catch (Exception ex)
-            {
-                LogError("[BlazorDevFlow] Poll error", ex);
-            }
-
-            await Task.Delay(50);
-        }
+        return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
     }
 
     protected void Log(string message)
@@ -405,9 +323,6 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-
-        Log("[BlazorDevFlow] Disposing...");
-        _bridge.StopAsync().GetAwaiter().GetResult();
-        _bridge.Dispose();
+        Log("[BlazorDevFlow] Disposed");
     }
 }
