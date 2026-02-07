@@ -13,15 +13,15 @@
     </PropertyGroup>
   </Target>
 
-  <Target Name="_SetMauiDevFlowPort" BeforeTargets="CoreCompile"
-          Condition="'$(MauiDevFlowPort)' != ''">
+  <Target Name="_SetMauiDevFlowPort" BeforeTargets="CoreCompile">
     <PropertyGroup>
       <_MauiDevFlowPortFile>$(IntermediateOutputPath)MauiDevFlowPort.g.cs</_MauiDevFlowPortFile>
     </PropertyGroup>
     <WriteLinesToFile File="$(_MauiDevFlowPortFile)"
                      Lines="[assembly: System.Reflection.AssemblyMetadataAttribute(&quot;MauiDevFlowPort&quot;, &quot;$(MauiDevFlowPort)&quot;)]"
-                     Overwrite="true" />
-    <ItemGroup>
+                     Overwrite="true"
+                     Condition="'$(MauiDevFlowPort)' != ''" />
+    <ItemGroup Condition="'$(MauiDevFlowPort)' != ''">
       <Compile Include="$(_MauiDevFlowPortFile)" />
     </ItemGroup>
   </Target>
