@@ -1,9 +1,18 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <!--
-    Injects MauiDevFlowPort as an AssemblyMetadataAttribute so the agent can read it at runtime.
-    Usage: dotnet build -p:MauiDevFlowPort=9225
-    If not set, the agent uses its default port (9223).
+    Reads port from mauidevflow.json in the project directory, or from -p:MauiDevFlowPort.
+    CLI override (-p:MauiDevFlowPort=9225) takes priority over the config file.
+    If neither is set, the agent uses its default port (9223).
   -->
+  <Target Name="_ReadMauiDevFlowConfig" BeforeTargets="_SetMauiDevFlowPort"
+          Condition="'$(MauiDevFlowPort)' == '' AND Exists('$(MSBuildProjectDirectory)/mauidevflow.json')">
+    <PropertyGroup>
+      <_MauiDevFlowConfigContent>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/mauidevflow.json'))</_MauiDevFlowConfigContent>
+      <_MauiDevFlowConfigPort>$([System.Text.RegularExpressions.Regex]::Match($(_MauiDevFlowConfigContent), '"port"\s*:\s*(\d+)').Groups[1].Value)</_MauiDevFlowConfigPort>
+      <MauiDevFlowPort Condition="'$(_MauiDevFlowConfigPort)' != ''">$(_MauiDevFlowConfigPort)</MauiDevFlowPort>
+    </PropertyGroup>
+  </Target>
+
   <Target Name="_SetMauiDevFlowPort" BeforeTargets="CoreCompile"
           Condition="'$(MauiDevFlowPort)' != ''">
     <PropertyGroup>

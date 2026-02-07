@@ -18,7 +18,7 @@ class Program
         // Global agent connection options (shared by MAUI and CDP commands)
         var agentPortOption = new Option<int>(
             ["--agent-port", "-ap"],
-            () => 9223,
+            () => ReadConfigPort() ?? 9223,
             "Agent HTTP port");
         var agentHostOption = new Option<string>(
             ["--agent-host", "-ah"],
@@ -919,5 +919,24 @@ class Program
             if (el.Children != null)
                 PrintTree(el.Children, indent + 1);
         }
+    }
+
+    /// <summary>
+    /// Reads the port from mauidevflow.json in the current directory.
+    /// </summary>
+    private static int? ReadConfigPort()
+    {
+        try
+        {
+            var path = Path.Combine(Directory.GetCurrentDirectory(), "mauidevflow.json");
+            if (!File.Exists(path)) return null;
+
+            var json = File.ReadAllText(path);
+            var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("port", out var portProp) && portProp.ValueKind == JsonValueKind.Number)
+                return portProp.GetInt32();
+        }
+        catch { /* ignore parse failures */ }
+        return null;
     }
 }

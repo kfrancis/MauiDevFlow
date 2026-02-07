@@ -305,43 +305,26 @@ For detailed platform-specific setup, simulator/emulator management, and trouble
 
 ## Multi-Project / Custom Ports
 
-The default port is 9223. When it's already in use (e.g., another MAUI app is running),
-you **must** find a free port before building. Follow this workflow:
+The default port is 9223. For custom ports, create a `mauidevflow.json` file in the project
+directory. Both the MSBuild targets and the CLI read this file automatically:
 
-### Step 1: Find a free port
-
-```bash
-# Check if default port 9223 is available
-lsof -i :9223  # no output = free
-
-# If busy, try the next ports until one is free
-lsof -i :9224
-lsof -i :9225
-# ... pick the first port with no output
+```json
+{
+  "port": 9225
+}
 ```
 
-### Step 2: Build and run with that port
+With this file in place:
+- **Build**: `dotnet build -f net10.0-maccatalyst -t:Run` — automatically uses port 9225
+- **CLI**: `maui-devflow MAUI status` — automatically uses port 9225 (reads from cwd)
+- **Android**: match the port: `adb reverse tcp:9225 tcp:9225`
 
-Pass the free port via `-p:MauiDevFlowPort` on every `dotnet build` invocation:
+No need to pass `-p:MauiDevFlowPort` or `--agent-port` — the config file handles it.
 
-```bash
-dotnet build -f net10.0-maccatalyst -t:Run -p:MauiDevFlowPort=9225
-```
+**Port priority:** Code-set `options.Port` > MSBuild `-p:MauiDevFlowPort` > `mauidevflow.json` > Default 9223.
 
-### Step 3: Use the same port for ALL CLI commands
-
-**Important:** Remember the port you chose and pass `--agent-port` to every `maui-devflow`
-command for the rest of the session:
-
-```bash
-maui-devflow MAUI status --agent-port 9225
-maui-devflow MAUI tree --agent-port 9225
-maui-devflow cdp snapshot --agent-port 9225
-```
-
-For Android, match the `adb reverse` port: `adb reverse tcp:9225 tcp:9225`.
-
-**Port priority:** Code-set `options.Port` > MSBuild `-p:MauiDevFlowPort` > Default 9223.
+The CLI looks for `mauidevflow.json` in the current working directory. Run CLI commands from
+the project directory (where the file lives) for automatic port detection.
 
 ## Tips
 
@@ -352,7 +335,7 @@ For Android, match the `adb reverse` port: `adb reverse tcp:9225 tcp:9225`.
   Routes are defined in AppShell.xaml via `Route` property on ShellContent elements.
 - For Blazor Hybrid, `cdp snapshot` is the most AI-friendly way to read page state.
 - Build times: Mac Catalyst ~5-10s, iOS ~30-60s, Android ~30-90s. Set appropriate timeouts.
-- After Android deploy, always run `adb reverse tcp:9223 tcp:9223` for port forwarding.
+- After Android deploy, always run `adb reverse` for port forwarding (match the port in `mauidevflow.json` or default 9223).
 - **Property inspection** is more reliable than screenshots for verifying exact runtime values
   (colors, sizes, visibility). Use `tree` → `property` workflow for systematic debugging.
 - **Application logs** are captured automatically from `ILogger`. Use `MAUI logs` to fetch
