@@ -19,6 +19,7 @@ manually check the simulator.
 
 - **Native MAUI Automation** — Visual tree inspection, element interaction (tap, fill, clear), screenshots via in-app Agent
 - **Blazor WebView Debugging** — CDP bridge using Chobitsu for JavaScript evaluation, DOM manipulation, page navigation
+- **Unified Logging** — Native `ILogger` and WebView `console.log/warn/error` unified into a single log stream with source filtering
 - **CLI Tool** (`maui-devflow`) — Scriptable commands for both native and Blazor automation
 - **Driver Library** — Platform-aware (Mac Catalyst, Android, iOS Simulator) orchestration
 - **AI Skill** — Claude Code skill (`.claude/skills/maui-ai-debugging`) for AI-driven development workflows
@@ -130,6 +131,10 @@ maui-devflow MAUI screenshot --output screen.png
 # Fetch application logs
 maui-devflow MAUI logs --limit 50
 
+# Filter by source (native ILogger or Blazor WebView console)
+maui-devflow MAUI logs --source webview
+maui-devflow MAUI logs --source native
+
 # Live edit native properties (no rebuild)
 maui-devflow MAUI set-property HeaderLabel TextColor "Tomato"
 maui-devflow MAUI set-property HeaderLabel FontSize "32"
@@ -200,6 +205,8 @@ The Agent runs inside the MAUI app and exposes an HTTP/JSON REST API on port 922
 | `/api/screenshot` | GET | PNG screenshot |
 | `/api/property/{id}/{name}` | GET | Get property value |
 | `/api/property/{id}/{name}` | POST | Set property `{"value":"..."}` |
+| `/api/logs?limit=N&skip=N&source=S` | GET | Application logs (source: `native`, `webview`, or omit for all) |
+| `/api/cdp` | POST | Forward CDP command to Blazor WebView |
 
 ## Project Structure
 

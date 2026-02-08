@@ -10,5 +10,6 @@ public record FileLogEntry(
     [property: JsonPropertyName("l")] string Level,
     [property: JsonPropertyName("c")] string Category,
     [property: JsonPropertyName("m")] string Message,
-    [property: JsonPropertyName("e")] string? Exception = null
+    [property: JsonPropertyName("e")] string? Exception = null,
+    [property: JsonPropertyName("s")] string? Source = null
 );

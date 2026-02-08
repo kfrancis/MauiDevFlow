@@ -50,6 +50,25 @@ public class DevFlowAgentService : IDisposable
         => _logProvider = provider;
 
     /// <summary>
+    /// Writes a log entry originating from the WebView/Blazor console.
+    /// Called by the Blazor package via reflection to route JS console output through ILogger.
+    /// </summary>
+    public void WriteWebViewLog(string level, string category, string message, string? exception = null)
+    {
+        if (_logProvider == null) return;
+
+        var entry = new Logging.FileLogEntry(
+            Timestamp: DateTime.UtcNow,
+            Level: level,
+            Category: category,
+            Message: message,
+            Exception: exception,
+            Source: "webview"
+        );
+        _logProvider.Writer.Write(entry);
+    }
+
+    /// <summary>
     /// Starts the agent and binds to the running MAUI app.
     /// </summary>
     public void Start(Application app, IDispatcher dispatcher)
@@ -606,11 +625,12 @@ public class DevFlowAgentService : IDisposable
 
         var limitStr = request.QueryParams.GetValueOrDefault("limit", "100");
         var skipStr = request.QueryParams.GetValueOrDefault("skip", "0");
+        var source = request.QueryParams.TryGetValue("source", out var s) ? s : null;
 
         if (!int.TryParse(limitStr, out var limit)) limit = 100;
         if (!int.TryParse(skipStr, out var skip)) skip = 0;
 
-        var entries = _logProvider.Reader.Read(limit, skip);
+        var entries = _logProvider.Reader.Read(limit, skip, source);
         return Task.FromResult(HttpResponse.Json(entries));
     }
 

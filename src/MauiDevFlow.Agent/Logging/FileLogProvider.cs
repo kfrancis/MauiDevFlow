@@ -11,6 +11,7 @@ public class FileLogProvider : ILoggerProvider
     private readonly FileLogReader _reader;
 
     public FileLogReader Reader => _reader;
+    public FileLogWriter Writer => _writer;
 
     public FileLogProvider(string logDir, long maxFileSizeBytes = 1_048_576, int maxFiles = 5)
     {
@@ -49,7 +50,8 @@ public class FileLogProvider : ILoggerProvider
                 Level: logLevel.ToString(),
                 Category: _category,
                 Message: formatter(state, exception),
-                Exception: exception?.ToString()
+                Exception: exception?.ToString(),
+                Source: "native"
             );
 
             _writer.Write(entry);

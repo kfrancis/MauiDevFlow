@@ -144,6 +144,20 @@ public static class BlazorDevFlowExtensions
                     readyProp.SetValue(agentService, readyCheck);
                 }
 
+                // Wire WebViewLogCallback → Agent.WriteWebViewLog
+                var writeLogMethod = agentType.GetMethod("WriteWebViewLog");
+                if (writeLogMethod != null)
+                {
+                    blazorService.WebViewLogCallback = (level, message, exception) =>
+                    {
+                        try
+                        {
+                            writeLogMethod.Invoke(agentService, new object?[] { level, "WebView.Console", message, exception });
+                        }
+                        catch { /* ignore logging failures */ }
+                    };
+                }
+
                 System.Diagnostics.Debug.WriteLine("[MauiDevFlow] Blazor CDP wired to Agent /api/cdp endpoint");
             }
             catch (Exception ex)

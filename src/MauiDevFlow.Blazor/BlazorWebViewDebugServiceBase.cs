@@ -10,9 +10,16 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
     protected bool IsInitialized;
     private bool _disposed;
     private bool _injecting;
+    private CancellationTokenSource? _drainCts;
 
     /// <summary>Optional log callback for debug messages.</summary>
     public Action<string>? LogCallback { get; set; }
+
+    /// <summary>
+    /// Callback for routing WebView console logs to the native logging pipeline.
+    /// Parameters: level, message, exception (nullable).
+    /// </summary>
+    public Action<string, string, string?>? WebViewLogCallback { get; set; }
 
     public bool IsReady => IsInitialized && HasWebView && _chobitsuLoaded;
 
@@ -129,6 +136,10 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
             var result = await EvaluateJavaScriptAsync(script);
             Log($"[BlazorDevFlow] Script injection result: {result?.ToString() ?? "null"}");
             _chobitsuLoaded = true;
+
+            // Inject console interceptor to capture WebView logs
+            await InjectConsoleInterceptAsync();
+            StartLogDrain();
         }
         catch (Exception ex)
         {
@@ -319,10 +330,80 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
             Log($"  Exception: {ex.GetType().Name}: {ex.Message}");
     }
 
+    private async Task InjectConsoleInterceptAsync()
+    {
+        try
+        {
+            var script = ScriptResources.Load("console-intercept.js");
+            var result = await EvaluateJavaScriptAsync(script);
+            Log($"[BlazorDevFlow] Console intercept: {result ?? "null"}");
+        }
+        catch (Exception ex)
+        {
+            LogError("[BlazorDevFlow] Failed to inject console interceptor", ex);
+        }
+    }
+
+    private void StartLogDrain()
+    {
+        _drainCts?.Cancel();
+        _drainCts = new CancellationTokenSource();
+        var ct = _drainCts.Token;
+
+        Task.Run(async () =>
+        {
+            var drainScript = ScriptResources.Load("drain-console-logs.js");
+
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(2000, ct);
+                    if (!IsReady || WebViewLogCallback == null) continue;
+
+                    var raw = await MainThread.InvokeOnMainThreadAsync(async () =>
+                    {
+                        return await EvaluateJavaScriptAsync(drainScript);
+                    });
+
+                    var json = UnescapeEvalResult(raw);
+                    if (string.IsNullOrEmpty(json) || json == "null") continue;
+
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    foreach (var entry in doc.RootElement.EnumerateArray())
+                    {
+                        var jsLevel = entry.GetProperty("l").GetString() ?? "log";
+                        var message = entry.GetProperty("m").GetString() ?? "";
+                        var exception = entry.TryGetProperty("e", out var eProp) ? eProp.GetString() : null;
+
+                        // Map JS console levels to .NET LogLevel names
+                        var level = jsLevel switch
+                        {
+                            "error" => "Error",
+                            "warn" => "Warning",
+                            "debug" => "Debug",
+                            "info" => "Information",
+                            _ => "Information" // console.log → Information
+                        };
+
+                        WebViewLogCallback(level, message, exception);
+                    }
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BlazorDevFlow] Log drain error: {ex.Message}");
+                }
+            }
+        }, ct);
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        _drainCts?.Cancel();
+        _drainCts?.Dispose();
         Log("[BlazorDevFlow] Disposed");
     }
 }

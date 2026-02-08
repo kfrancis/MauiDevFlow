@@ -215,9 +215,10 @@ class Program
         // logs command
         var logsLimitOption = new Option<int>("--limit", () => 100, "Number of log entries to return");
         var logsSkipOption = new Option<int>("--skip", () => 0, "Number of newest entries to skip");
-        var mauiLogsCmd = new Command("logs", "Fetch application logs") { logsLimitOption, logsSkipOption };
-        mauiLogsCmd.SetHandler(async (host, port, limit, skip) => await MauiLogsAsync(host, port, limit, skip),
-            agentHostOption, agentPortOption, logsLimitOption, logsSkipOption);
+        var logsSourceOption = new Option<string?>("--source", () => null, "Filter by log source: native, webview, or all (default: all)");
+        var mauiLogsCmd = new Command("logs", "Fetch application logs") { logsLimitOption, logsSkipOption, logsSourceOption };
+        mauiLogsCmd.SetHandler(async (host, port, limit, skip, source) => await MauiLogsAsync(host, port, limit, skip, source),
+            agentHostOption, agentPortOption, logsLimitOption, logsSkipOption, logsSourceOption);
         mauiCommand.Add(mauiLogsCmd);
 
         rootCommand.Add(mauiCommand);
@@ -846,13 +847,16 @@ class Program
         catch (Exception ex) { WriteError(ex.Message); }
     }
 
-    private static async Task MauiLogsAsync(string host, int port, int limit, int skip)
+    private static async Task MauiLogsAsync(string host, int port, int limit, int skip, string? source)
     {
         try
         {
             using var http = new HttpClient();
             http.BaseAddress = new Uri($"http://{host}:{port}");
-            var response = await http.GetAsync($"/api/logs?limit={limit}&skip={skip}");
+            var url = $"/api/logs?limit={limit}&skip={skip}";
+            if (!string.IsNullOrEmpty(source))
+                url += $"&source={Uri.EscapeDataString(source)}";
+            var response = await http.GetAsync(url);
             var json = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)
@@ -875,6 +879,7 @@ class Program
                 var category = entry.GetProperty("c").GetString() ?? "";
                 var message = entry.GetProperty("m").GetString() ?? "";
                 var exception = entry.TryGetProperty("e", out var eProp) ? eProp.GetString() : null;
+                var logSource = entry.TryGetProperty("s", out var sProp) ? sProp.GetString() : null;
 
                 // Color-code by level
                 var color = level switch
@@ -889,6 +894,14 @@ class Program
                 Console.ForegroundColor = color;
                 Console.Write($"[{ts}] ");
                 Console.Write($"{level,-12} ");
+
+                // Show source tag for webview logs
+                if (logSource == "webview")
+                {
+                    Console.ForegroundColor = ConsoleColor.Magenta;
+                    Console.Write("[WebView] ");
+                }
+
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.Write($"{category}: ");
                 Console.ForegroundColor = color;

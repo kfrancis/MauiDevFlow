@@ -18,7 +18,7 @@ public class FileLogReader
     /// <summary>
     /// Returns log entries in reverse chronological order (newest first).
     /// </summary>
-    public List<FileLogEntry> Read(int limit = 100, int skip = 0)
+    public List<FileLogEntry> Read(int limit = 100, int skip = 0, string? source = null)
     {
         limit = Math.Clamp(limit, 1, 1000);
         skip = Math.Max(skip, 0);
@@ -33,14 +33,18 @@ public class FileLogReader
             // Entries in each file are chronological; we'll reverse at the end
             allEntries.AddRange(entries);
 
-            if (allEntries.Count >= needed)
+            if (allEntries.Count >= needed && source == null)
                 break;
         }
 
-        // Sort newest first, then apply skip/limit
+        // Sort newest first, then apply source filter and skip/limit
         allEntries.Sort((a, b) => b.Timestamp.CompareTo(a.Timestamp));
 
-        return allEntries
+        IEnumerable<FileLogEntry> result = allEntries;
+        if (!string.IsNullOrEmpty(source))
+            result = result.Where(e => string.Equals(e.Source, source, StringComparison.OrdinalIgnoreCase));
+
+        return result
             .Skip(skip)
             .Take(limit)
             .ToList();
