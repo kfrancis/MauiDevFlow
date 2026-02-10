@@ -79,11 +79,17 @@ public static class AgentServiceExtensions
 #elif WINDOWS
             lifecycle.AddWindows(windows =>
             {
-                windows.OnLaunched((_, _) =>
+                var started = false;
+                windows.OnActivated((window, args) =>
                 {
+                    if (started) return;
                     var app = Application.Current;
                     if (app != null)
-                        service.Start(app, app.Dispatcher);
+                    {
+                        started = true;
+                        app.Dispatcher.Dispatch(() => service.Start(app, app.Dispatcher));
+                        Console.WriteLine($"[MauiDevFlow] Agent started on port {options.Port}");
+                    }
                 });
             });
 #endif

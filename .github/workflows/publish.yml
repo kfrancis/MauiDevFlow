@@ -5,7 +5,31 @@ on:
     types: [published]
 
 jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Restore
+        run: dotnet restore ci.slnf
+
+      - name: Build
+        run: dotnet build ci.slnf -c Release --no-restore
+
+      - name: Test
+        run: dotnet test ci.slnf -c Release --no-build --no-restore
+
   publish:
+    needs: build-and-test
     runs-on: macos-latest
     permissions:
       contents: read

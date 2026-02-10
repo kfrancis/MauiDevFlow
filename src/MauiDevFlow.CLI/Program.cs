@@ -1040,6 +1040,7 @@ class Program
         if (p.Contains("catalyst")) return "maccatalyst";
         if (p.Contains("ios") || p.Contains("simulator")) return "ios-simulator";
         if (p.Contains("android")) return "android";
+        if (p.Contains("windows") || p.Contains("win")) return "windows";
 
         // Auto-detect from agent
         try
@@ -1052,11 +1053,13 @@ class Program
                 if (sp.Contains("catalyst")) return "maccatalyst";
                 if (sp.Contains("android")) return "android";
                 if (sp.Contains("ios")) return "ios-simulator";
+                if (sp.Contains("windows")) return "windows";
             }
         }
         catch { }
 
-        return "maccatalyst"; // default fallback
+        if (OperatingSystem.IsWindows()) return "windows";
+        return "maccatalyst";
     }
 
     private static async Task<int> ResolveMacCatalystPidAsync(int? pid, string host, int port)
@@ -1090,6 +1093,35 @@ class Program
         throw new InvalidOperationException("Cannot determine Mac Catalyst app PID. Specify --pid.");
     }
 
+    private static async Task<int> ResolveWindowsPidAsync(int? pid, string host, int port)
+    {
+        if (pid.HasValue) return pid.Value;
+
+        try
+        {
+            using var client = new MauiDevFlow.Driver.AgentClient(host, port);
+            var status = await client.GetStatusAsync();
+            if (status?.AppName != null)
+            {
+                var processes = System.Diagnostics.Process.GetProcessesByName(status.AppName);
+                if (processes.Length > 0)
+                    return processes[0].Id;
+
+                var match = System.Diagnostics.Process.GetProcesses()
+                    .FirstOrDefault(p =>
+                    {
+                        try { return p.ProcessName.Contains(status.AppName, StringComparison.OrdinalIgnoreCase); }
+                        catch { return false; }
+                    });
+                if (match != null)
+                    return match.Id;
+            }
+        }
+        catch { }
+
+        throw new InvalidOperationException("Cannot determine Windows app PID. Specify --pid.");
+    }
+
     private static async Task AlertDetectAsync(string? udid, int? pid, string platform, string host, int port)
     {
         try
@@ -1114,6 +1146,16 @@ class Program
                 Console.WriteLine($"Alert: {alert.Title ?? "(no title)"}");
                 foreach (var btn in alert.Buttons)
                     Console.WriteLine($"  Button: \"{btn.Label}\" at ({btn.CenterX}, {btn.CenterY})");
+            }
+            else if (plat == "windows")
+            {
+                var resolvedPid = await ResolveWindowsPidAsync(pid, host, port);
+                var driver = new MauiDevFlow.Driver.WindowsAppDriver { ProcessId = resolvedPid };
+                var alert = await driver.DetectAlertAsync();
+                if (alert is null) { Console.WriteLine("No alert detected"); return; }
+                Console.WriteLine($"Alert: {alert.Title ?? "(no title)"}");
+                foreach (var btn in alert.Buttons)
+                    Console.WriteLine($"  Button: \"{btn.Label}\"");
             }
             else
             {
@@ -1150,6 +1192,14 @@ class Program
                 if (alert is null) Console.WriteLine("No alert to dismiss");
                 else Console.WriteLine($"Dismissed: {alert.Title ?? "(alert)"}");
             }
+            else if (plat == "windows")
+            {
+                var resolvedPid = await ResolveWindowsPidAsync(pid, host, port);
+                var driver = new MauiDevFlow.Driver.WindowsAppDriver { ProcessId = resolvedPid };
+                var alert = await driver.HandleAlertIfPresentAsync(buttonLabel);
+                if (alert is null) Console.WriteLine("No alert to dismiss");
+                else Console.WriteLine($"Dismissed: {alert.Title ?? "(alert)"}");
+            }
             else
             {
                 var resolved = await ResolveUdidAsync(udid);
@@ -1178,6 +1228,13 @@ class Program
             else if (plat == "android")
             {
                 var driver = new MauiDevFlow.Driver.AndroidAppDriver { Serial = udid };
+                var tree = await driver.GetAccessibilityTreeAsync();
+                Console.WriteLine(tree);
+            }
+            else if (plat == "windows")
+            {
+                var resolvedPid = await ResolveWindowsPidAsync(pid, host, port);
+                var driver = new MauiDevFlow.Driver.WindowsAppDriver { ProcessId = resolvedPid };
                 var tree = await driver.GetAccessibilityTreeAsync();
                 Console.WriteLine(tree);
             }
