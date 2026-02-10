@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
+    <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);WINDOWS_BUILD</DefineConstants>
 
     <PackageId>Redth.MauiDevFlow.Driver</PackageId>
     <Description>Driver library for connecting to MauiDevFlow Agent and orchestrating MAUI app automation.</Description>
@@ -10,6 +11,7 @@
 
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="9.0.6" />
+    <PackageReference Include="Interop.UIAutomationClient" Version="10.19041.0" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
   </ItemGroup>
 
 </Project>

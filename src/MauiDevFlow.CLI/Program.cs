@@ -27,7 +27,7 @@ class Program
         var platformOption = new Option<string>(
             ["--platform", "-p"],
             () => "maccatalyst",
-            "Target platform (maccatalyst, android, ios)");
+            "Target platform (maccatalyst, android, ios, windows)");
 
         // ===== CDP commands (Blazor WebView) =====
         
@@ -218,7 +218,7 @@ class Program
         // detect
         var detectUdid = new Option<string?>("--udid", "Simulator UDID (auto-detects booted simulator if omitted)");
         var detectPid = new Option<int?>("--pid", "Mac Catalyst app PID (auto-detects if omitted)");
-        var detectPlatform = new Option<string>("--platform", () => "auto", "Platform: maccatalyst, ios, android, or auto");
+        var detectPlatform = new Option<string>("--platform", () => "auto", "Platform: maccatalyst, ios, android, windows, or auto");
         var detectHost = new Option<string>("--agent-host", () => "localhost", "Agent HTTP host");
         var detectPort = new Option<int>("--agent-port", () => 9223, "Agent HTTP port");
         var alertDetectCmd = new Command("detect", "Check if an alert/dialog is visible") { detectUdid, detectPid, detectPlatform, detectHost, detectPort };
@@ -229,7 +229,7 @@ class Program
         // dismiss
         var dismissUdid = new Option<string?>("--udid", "Simulator UDID (auto-detects booted simulator if omitted)");
         var dismissPid = new Option<int?>("--pid", "Mac Catalyst app PID (auto-detects if omitted)");
-        var dismissPlatform = new Option<string>("--platform", () => "auto", "Platform: maccatalyst, ios, android, or auto");
+        var dismissPlatform = new Option<string>("--platform", () => "auto", "Platform: maccatalyst, ios, android, windows, or auto");
         var dismissHost = new Option<string>("--agent-host", () => "localhost", "Agent HTTP host");
         var dismissPort = new Option<int>("--agent-port", () => 9223, "Agent HTTP port");
         var dismissButtonArg = new Argument<string?>("button", () => null, "Button label to tap (default: first accept-style button)");
@@ -241,7 +241,7 @@ class Program
         // tree
         var treeUdid = new Option<string?>("--udid", "Simulator UDID (auto-detects booted simulator if omitted)");
         var treePid = new Option<int?>("--pid", "Mac Catalyst app PID (auto-detects if omitted)");
-        var treePlatform = new Option<string>("--platform", () => "auto", "Platform: maccatalyst, ios, android, or auto");
+        var treePlatform = new Option<string>("--platform", () => "auto", "Platform: maccatalyst, ios, android, windows, or auto");
         var treeHost = new Option<string>("--agent-host", () => "localhost", "Agent HTTP host");
         var treePort = new Option<int>("--agent-port", () => 9223, "Agent HTTP port");
         var alertTreeCmd = new Command("tree", "Show raw accessibility tree") { treeUdid, treePid, treePlatform, treeHost, treePort };
@@ -1040,6 +1040,7 @@ class Program
         if (p.Contains("catalyst")) return "maccatalyst";
         if (p.Contains("ios") || p.Contains("simulator")) return "ios-simulator";
         if (p.Contains("android")) return "android";
+        if (p.Contains("windows") || p.Contains("win")) return "windows";
 
         // Auto-detect from agent
         try
@@ -1052,11 +1053,13 @@ class Program
                 if (sp.Contains("catalyst")) return "maccatalyst";
                 if (sp.Contains("android")) return "android";
                 if (sp.Contains("ios")) return "ios-simulator";
+                if (sp.Contains("windows")) return "windows";
             }
         }
         catch { }
 
-        return "maccatalyst"; // default fallback
+        if (OperatingSystem.IsWindows()) return "windows";
+        return "maccatalyst";
     }
 
     private static async Task<int> ResolveMacCatalystPidAsync(int? pid, string host, int port)
@@ -1090,6 +1093,35 @@ class Program
         throw new InvalidOperationException("Cannot determine Mac Catalyst app PID. Specify --pid.");
     }
 
+    private static async Task<int> ResolveWindowsPidAsync(int? pid, string host, int port)
+    {
+        if (pid.HasValue) return pid.Value;
+
+        try
+        {
+            using var client = new MauiDevFlow.Driver.AgentClient(host, port);
+            var status = await client.GetStatusAsync();
+            if (status?.AppName != null)
+            {
+                var processes = System.Diagnostics.Process.GetProcessesByName(status.AppName);
+                if (processes.Length > 0)
+                    return processes[0].Id;
+
+                var match = System.Diagnostics.Process.GetProcesses()
+                    .FirstOrDefault(p =>
+                    {
+                        try { return p.ProcessName.Contains(status.AppName, StringComparison.OrdinalIgnoreCase); }
+                        catch { return false; }
+                    });
+                if (match != null)
+                    return match.Id;
+            }
+        }
+        catch { }
+
+        throw new InvalidOperationException("Cannot determine Windows app PID. Specify --pid.");
+    }
+
     private static async Task AlertDetectAsync(string? udid, int? pid, string platform, string host, int port)
     {
         try
@@ -1114,6 +1146,16 @@ class Program
                 Console.WriteLine($"Alert: {alert.Title ?? "(no title)"}");
                 foreach (var btn in alert.Buttons)
                     Console.WriteLine($"  Button: \"{btn.Label}\" at ({btn.CenterX}, {btn.CenterY})");
+            }
+            else if (plat == "windows")
+            {
+                var resolvedPid = await ResolveWindowsPidAsync(pid, host, port);
+                var driver = new MauiDevFlow.Driver.WindowsAppDriver { ProcessId = resolvedPid };
+                var alert = await driver.DetectAlertAsync();
+                if (alert is null) { Console.WriteLine("No alert detected"); return; }
+                Console.WriteLine($"Alert: {alert.Title ?? "(no title)"}");
+                foreach (var btn in alert.Buttons)
+                    Console.WriteLine($"  Button: \"{btn.Label}\"");
             }
             else
             {
@@ -1150,6 +1192,14 @@ class Program
                 if (alert is null) Console.WriteLine("No alert to dismiss");
                 else Console.WriteLine($"Dismissed: {alert.Title ?? "(alert)"}");
             }
+            else if (plat == "windows")
+            {
+                var resolvedPid = await ResolveWindowsPidAsync(pid, host, port);
+                var driver = new MauiDevFlow.Driver.WindowsAppDriver { ProcessId = resolvedPid };
+                var alert = await driver.HandleAlertIfPresentAsync(buttonLabel);
+                if (alert is null) Console.WriteLine("No alert to dismiss");
+                else Console.WriteLine($"Dismissed: {alert.Title ?? "(alert)"}");
+            }
             else
             {
                 var resolved = await ResolveUdidAsync(udid);
@@ -1178,6 +1228,13 @@ class Program
             else if (plat == "android")
             {
                 var driver = new MauiDevFlow.Driver.AndroidAppDriver { Serial = udid };
+                var tree = await driver.GetAccessibilityTreeAsync();
+                Console.WriteLine(tree);
+            }
+            else if (plat == "windows")
+            {
+                var resolvedPid = await ResolveWindowsPidAsync(pid, host, port);
+                var driver = new MauiDevFlow.Driver.WindowsAppDriver { ProcessId = resolvedPid };
                 var tree = await driver.GetAccessibilityTreeAsync();
                 Console.WriteLine(tree);
             }

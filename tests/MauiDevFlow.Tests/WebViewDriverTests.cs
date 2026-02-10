@@ -92,6 +92,9 @@ public class AppDriverFactoryTests
     [InlineData("android", typeof(AndroidAppDriver))]
     [InlineData("ios", typeof(iOSSimulatorAppDriver))]
     [InlineData("iossimulator", typeof(iOSSimulatorAppDriver))]
+    [InlineData("windows", typeof(WindowsAppDriver))]
+    [InlineData("win", typeof(WindowsAppDriver))]
+    [InlineData("winui", typeof(WindowsAppDriver))]
     public void Create_ReturnsCorrectDriverType(string platform, Type expectedType)
     {
         using var driver = AppDriverFactory.Create(platform);
@@ -146,6 +149,16 @@ public class iOSSimulatorAppDriverTests
     {
         using var driver = new iOSSimulatorAppDriver();
         Assert.Equal("iOSSimulator", driver.Platform);
+    }
+}
+
+public class WindowsAppDriverTests
+{
+    [Fact]
+    public void Platform_ReturnsWindows()
+    {
+        using var driver = new WindowsAppDriver();
+        Assert.Equal("Windows", driver.Platform);
     }
 }
 

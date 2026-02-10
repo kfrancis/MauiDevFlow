@@ -343,6 +343,42 @@ public class VisualTreeWalker
                 if (props.Count > 0)
                     info.NativeProperties = props;
             }
+#elif WINDOWS
+            if (platformView is Microsoft.UI.Xaml.FrameworkElement frameworkElement)
+            {
+                var props = new Dictionary<string, string?>();
+                var automationId = Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(frameworkElement);
+                if (!string.IsNullOrEmpty(automationId))
+                    props["automationId"] = automationId;
+                var automationName = Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(frameworkElement);
+                if (!string.IsNullOrEmpty(automationName))
+                    props["automationName"] = automationName;
+                var helpText = Microsoft.UI.Xaml.Automation.AutomationProperties.GetHelpText(frameworkElement);
+                if (!string.IsNullOrEmpty(helpText))
+                    props["helpText"] = helpText;
+                if (!string.IsNullOrEmpty(frameworkElement.Name))
+                    props["name"] = frameworkElement.Name;
+                if (frameworkElement.Visibility != Microsoft.UI.Xaml.Visibility.Visible)
+                    props["visibility"] = "collapsed";
+                if (!frameworkElement.IsHitTestVisible)
+                    props["isHitTestVisible"] = "false";
+                if (frameworkElement is Microsoft.UI.Xaml.Controls.Control control)
+                {
+                    if (!control.IsEnabled)
+                        props["isEnabled"] = "false";
+                    if (!control.IsTabStop)
+                        props["isTabStop"] = "false";
+                }
+                if (frameworkElement is Microsoft.UI.Xaml.Controls.TextBox textBox)
+                {
+                    if (textBox.IsReadOnly)
+                        props["isReadOnly"] = "true";
+                }
+                if (frameworkElement is Microsoft.UI.Xaml.Controls.PasswordBox)
+                    props["isPassword"] = "true";
+                if (props.Count > 0)
+                    info.NativeProperties = props;
+            }
 #endif
         }
         catch
