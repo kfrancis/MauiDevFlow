@@ -44,6 +44,9 @@ public class WindowsAppDriver : AppDriverBase
         SendKeyPress(vk);
         return Task.CompletedTask;
     }
+#else
+    public override Task BackAsync() => throw new PlatformNotSupportedException("Windows operations require Windows.");
+    public override Task PressKeyAsync(string key) => throw new PlatformNotSupportedException("Windows operations require Windows.");
 #endif
 
     // ──────────────────────────────────────────────
@@ -181,6 +184,11 @@ public class WindowsAppDriver : AppDriverBase
 
         return buttons[0];
     }
+#else
+    public Task<AlertInfo?> DetectAlertAsync() => throw new PlatformNotSupportedException("Windows operations require Windows.");
+    public Task DismissAlertAsync(string? buttonLabel = null) => throw new PlatformNotSupportedException("Windows operations require Windows.");
+    public Task<AlertInfo?> HandleAlertIfPresentAsync(string? buttonLabel = null) => throw new PlatformNotSupportedException("Windows operations require Windows.");
+    public Task<string> GetAccessibilityTreeAsync() => throw new PlatformNotSupportedException("Windows operations require Windows.");
 #endif
 
     // ──────────────────────────────────────────────
@@ -283,5 +291,7 @@ public class WindowsAppDriver : AppDriverBase
         if (!OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("Windows dialog handling requires Windows.");
     }
+#else
+    private static void EnsureWindows() => throw new PlatformNotSupportedException("Windows dialog handling requires Windows.");
 #endif
 }
