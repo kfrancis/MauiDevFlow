@@ -97,7 +97,7 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
             return;
         }
 
-        // Wait for chobitsu to be available (loaded via <script> tag in index.html)
+        // Wait for chobitsu to be available (auto-injected via JS initializer, or manual <script> tag)
         for (int i = 0; i < 30; i++)
         {
             var check = await EvaluateJavaScriptAsync(
@@ -106,16 +106,16 @@ public abstract class BlazorWebViewDebugServiceBase : IDisposable
                 Log($"[BlazorDevFlow] Chobitsu check #{i}: {check}");
             if (check?.ToString() == "loaded") break;
 
-            // After a few attempts, check the HTML for the script tag to give an early error
-            if (i == 5)
+            // After several attempts, check if the script tag was injected
+            if (i == 10)
             {
                 var hasTag = await EvaluateJavaScriptAsync(
                     "document.querySelector('script[src*=\"chobitsu\"]') ? 'found' : 'missing'");
                 if (hasTag?.ToString() == "missing")
                 {
-                    Log("[BlazorDevFlow] ❌ Missing required script tag in wwwroot/index.html.");
-                    Log("[BlazorDevFlow] Add this before </body>:  <script src=\"chobitsu.js\"></script>");
-                    Log("[BlazorDevFlow] The chobitsu.js file is delivered automatically by the Redth.MauiDevFlow.Blazor NuGet package as a static web asset.");
+                    Log("[BlazorDevFlow] ⚠️ No chobitsu script tag found. Auto-injection via JS initializer may not have run.");
+                    Log("[BlazorDevFlow] Ensure Redth.MauiDevFlow.Blazor NuGet package is referenced, or add manually:");
+                    Log("[BlazorDevFlow]   <script src=\"chobitsu.js\"></script> before </body> in wwwroot/index.html");
                     return;
                 }
             }

@@ -7,6 +7,10 @@
     <SingleProject>true</SingleProject>
     <IsPackable>true</IsPackable>
 
+    <!-- Suppress JS module manifest to avoid conflicting with consuming app's manifest.
+         The consuming app's build will discover our .lib.module.js and include it. -->
+    <GenerateJSModuleManifest>false</GenerateJSModuleManifest>
+
     <!-- NuGet Package Metadata -->
     <PackageId>Redth.MauiDevFlow.Blazor</PackageId>
     <Description>Enable browser developer tools and Playwright MCP automation for .NET MAUI Blazor Hybrid apps. Connects Chrome DevTools Protocol to BlazorWebView via Chobitsu.</Description>

@@ -92,13 +92,14 @@ Create a `.mauidevflow` in your project directory to use a custom port:
 
 Both the build and CLI auto-detect this file — no flags needed. Useful when running multiple MAUI projects simultaneously.
 
-#### 3. Blazor Hybrid: Add Script Tag
+#### 3. Blazor Hybrid: Automatic Setup
 
-Blazor Hybrid apps also need a script tag in `wwwroot/index.html` (the `chobitsu.js` file is delivered automatically by the NuGet package as a static web asset):
+The `chobitsu.js` debugging library is automatically injected via a Blazor JS initializer — no manual script tag needed. Just add the NuGet package and register in `MauiProgram.cs`.
 
-```html
-<script src="chobitsu.js"></script>  <!-- Add before </body> -->
-```
+> **Note:** If auto-injection doesn't work in your setup, you can add the script tag manually in `wwwroot/index.html`:
+> ```html
+> <script src="chobitsu.js"></script>  <!-- Add before </body> -->
+> ```
 
 #### 4. Install CLI Tools
 

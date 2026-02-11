@@ -12,8 +12,7 @@ public static class BlazorDevFlowExtensions
     /// <summary>
     /// Adds MauiDevFlow Blazor WebView debugging tools to the MAUI app.
     /// Enables Chrome DevTools Protocol (CDP) access to BlazorWebView content.
-    /// Requires <![CDATA[<script src="js/chobitsu.js"></script>]]> in wwwroot/index.html.
-    /// The chobitsu.js file is auto-copied to wwwroot/js/ during Debug builds by the NuGet package.
+    /// Chobitsu.js is auto-injected via a Blazor JS initializer — no manual script tag needed.
     /// </summary>
     public static MauiAppBuilder AddMauiBlazorDevFlowTools(this MauiAppBuilder builder, Action<BlazorWebViewDebugOptions>? configure = null)
     {
