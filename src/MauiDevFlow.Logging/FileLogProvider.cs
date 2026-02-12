@@ -1,12 +1,14 @@
 using Microsoft.Extensions.Logging;
 
-namespace MauiDevFlow.Agent.Logging;
+namespace MauiDevFlow.Logging;
 
 /// <summary>
 /// ILoggerProvider that writes log entries to rotating JSONL files.
+/// Owns the shared ReaderWriterLockSlim used to coordinate writer drain and readers.
 /// </summary>
 public class FileLogProvider : ILoggerProvider
 {
+    private readonly ReaderWriterLockSlim _rwLock = new();
     private readonly FileLogWriter _writer;
     private readonly FileLogReader _reader;
 
@@ -15,15 +17,18 @@ public class FileLogProvider : ILoggerProvider
 
     public FileLogProvider(string logDir, long maxFileSizeBytes = 1_048_576, int maxFiles = 5)
     {
-        _writer = new FileLogWriter(logDir, maxFileSizeBytes, maxFiles);
-        _reader = new FileLogReader(logDir);
+        _writer = new FileLogWriter(logDir, _rwLock, maxFileSizeBytes, maxFiles);
+        _reader = new FileLogReader(logDir, _rwLock, _writer);
     }
 
     public ILogger CreateLogger(string categoryName)
         => new FileLogger(categoryName, _writer);
 
     public void Dispose()
-        => _writer.Dispose();
+    {
+        _writer.Dispose();
+        _rwLock.Dispose();
+    }
 
     private class FileLogger : ILogger
     {

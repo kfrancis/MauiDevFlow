@@ -6,6 +6,7 @@
       "src\\MauiDevFlow.Blazor\\MauiDevFlow.Blazor.csproj",
       "src\\MauiDevFlow.CLI\\MauiDevFlow.CLI.csproj",
       "src\\MauiDevFlow.Driver\\MauiDevFlow.Driver.csproj",
+      "src\\MauiDevFlow.Logging\\MauiDevFlow.Logging.csproj",
       "tests\\MauiDevFlow.Tests\\MauiDevFlow.Tests.csproj"
     ]
   }

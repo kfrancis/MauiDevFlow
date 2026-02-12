@@ -4,7 +4,7 @@ using Microsoft.Maui;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Controls.Internals;
 using Microsoft.Maui.Dispatching;
-using MauiDevFlow.Agent.Logging;
+using MauiDevFlow.Logging;
 
 namespace MauiDevFlow.Agent;
 
@@ -57,7 +57,7 @@ public class DevFlowAgentService : IDisposable
     {
         if (_logProvider == null) return;
 
-        var entry = new Logging.FileLogEntry(
+        var entry = new FileLogEntry(
             Timestamp: DateTime.UtcNow,
             Level: level,
             Category: category,

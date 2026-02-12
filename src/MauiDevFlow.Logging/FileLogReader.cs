@@ -1,18 +1,24 @@
 using System.Text.Json;
 
-namespace MauiDevFlow.Agent.Logging;
+namespace MauiDevFlow.Logging;
 
 /// <summary>
 /// Reads log entries from JSONL files, newest first.
-/// Reads current file first, then rotated files in order (001, 002, ...).
+/// Acquires a read lock so multiple readers can run concurrently
+/// without blocking each other, while the writer's drain holds a write lock.
+/// Also includes any unflushed entries still in the writer's buffer.
 /// </summary>
 public class FileLogReader
 {
     private readonly string _logDir;
+    private readonly ReaderWriterLockSlim _rwLock;
+    private readonly FileLogWriter _writer;
 
-    public FileLogReader(string logDir)
+    public FileLogReader(string logDir, ReaderWriterLockSlim rwLock, FileLogWriter writer)
     {
         _logDir = logDir;
+        _rwLock = rwLock;
+        _writer = writer;
     }
 
     /// <summary>
@@ -26,15 +32,25 @@ public class FileLogReader
         var allEntries = new List<FileLogEntry>();
         var needed = skip + limit;
 
-        // Read current file first (has newest entries), then rotated files
-        foreach (var file in GetLogFilesInOrder())
-        {
-            var entries = ReadFile(file);
-            // Entries in each file are chronological; we'll reverse at the end
-            allEntries.AddRange(entries);
+        // Include entries still in memory that haven't been drained to disk
+        allEntries.AddRange(_writer.GetBufferedEntries());
 
-            if (allEntries.Count >= needed && source == null)
-                break;
+        // Read files under read lock (concurrent with other readers, blocks during drain/rotation)
+        _rwLock.EnterReadLock();
+        try
+        {
+            foreach (var file in GetLogFilesInOrder())
+            {
+                var entries = ReadFile(file);
+                allEntries.AddRange(entries);
+
+                if (allEntries.Count >= needed && source == null)
+                    break;
+            }
+        }
+        finally
+        {
+            _rwLock.ExitReadLock();
         }
 
         // Sort newest first, then apply source filter and skip/limit
@@ -71,7 +87,7 @@ public class FileLogReader
         var entries = new List<FileLogEntry>();
         try
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var reader = new StreamReader(stream);
 
             string? line;
@@ -92,7 +108,7 @@ public class FileLogReader
         }
         catch
         {
-            // File may be locked or deleted during rotation
+            // File may have been deleted during rotation
         }
         return entries;
     }

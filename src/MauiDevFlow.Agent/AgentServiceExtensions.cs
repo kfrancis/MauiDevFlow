@@ -3,7 +3,7 @@ using Microsoft.Maui.Controls;
 using Microsoft.Maui.Dispatching;
 using Microsoft.Maui.Hosting;
 using Microsoft.Maui.LifecycleEvents;
-using MauiDevFlow.Agent.Logging;
+using MauiDevFlow.Logging;
 
 namespace MauiDevFlow.Agent;
 
