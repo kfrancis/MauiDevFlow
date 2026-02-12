@@ -1041,6 +1041,7 @@ class Program
         if (p.Contains("ios") || p.Contains("simulator")) return "ios-simulator";
         if (p.Contains("android")) return "android";
         if (p.Contains("windows") || p.Contains("win")) return "windows";
+        if (p.Contains("linux") || p.Contains("gtk")) return "linux";
 
         // Auto-detect from agent
         try
@@ -1054,11 +1055,13 @@ class Program
                 if (sp.Contains("android")) return "android";
                 if (sp.Contains("ios")) return "ios-simulator";
                 if (sp.Contains("windows")) return "windows";
+                if (sp.Contains("linux") || sp.Contains("gtk")) return "linux";
             }
         }
         catch { }
 
         if (OperatingSystem.IsWindows()) return "windows";
+        if (OperatingSystem.IsLinux()) return "linux";
         return "maccatalyst";
     }
 

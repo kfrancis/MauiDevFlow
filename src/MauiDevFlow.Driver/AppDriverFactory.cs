@@ -13,7 +13,8 @@ public static class AppDriverFactory
             "android" => new AndroidAppDriver(),
             "ios" or "iossimulator" => new iOSSimulatorAppDriver(),
             "windows" or "win" or "winui" => new WindowsAppDriver(),
-            _ => throw new ArgumentException($"Unknown platform: {platform}. Supported: maccatalyst, android, ios, windows")
+            "linux" or "gtk" => new LinuxAppDriver(),
+            _ => throw new ArgumentException($"Unknown platform: {platform}. Supported: maccatalyst, android, ios, windows, linux")
         };
     }
 }
