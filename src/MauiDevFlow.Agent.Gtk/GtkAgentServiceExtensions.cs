@@ -20,8 +20,36 @@ public static class GtkAgentServiceExtensions
         var options = new AgentOptions();
         configure?.Invoke(options);
 
-        // Check AssemblyMetadata for port override
+        // Read project identity from assembly metadata (injected by .targets)
+        var project = ReadAssemblyMetadata("MauiDevFlowProject") ?? "unknown";
+        var tfm = ReadAssemblyMetadata("MauiDevFlowTfm") ?? "unknown";
+
+        // Try broker for port assignment first
+        BrokerRegistration? brokerReg = null;
         if (options.Port == AgentOptions.DefaultPort)
+        {
+            try
+            {
+                var platform = "Linux";
+                var appName = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "unknown";
+                brokerReg = new BrokerRegistration(project, tfm, platform, appName);
+                var assignedPort = Task.Run(() => brokerReg.TryRegisterAsync(TimeSpan.FromSeconds(5))).GetAwaiter().GetResult();
+                if (assignedPort.HasValue)
+                {
+                    options.Port = assignedPort.Value;
+                    Console.WriteLine($"[MauiDevFlow] Broker assigned port {assignedPort.Value}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MauiDevFlow] Broker registration failed: {ex.Message}");
+                brokerReg?.Dispose();
+                brokerReg = null;
+            }
+        }
+
+        // Fall back to assembly metadata port if broker didn't assign one
+        if (brokerReg?.AssignedPort == null)
         {
             var metaPort = ReadAssemblyMetadataPort();
             if (metaPort.HasValue)
@@ -29,6 +57,11 @@ public static class GtkAgentServiceExtensions
         }
 
         var service = new GtkAgentService(options);
+        if (brokerReg != null)
+        {
+            brokerReg.CurrentPort = options.Port;
+            service.SetBrokerRegistration(brokerReg);
+        }
         builder.Services.AddSingleton<DevFlowAgentService>(service);
 
         if (options.EnableFileLogging)
@@ -50,7 +83,6 @@ public static class GtkAgentServiceExtensions
     /// </summary>
     public static void StartDevFlowAgent(this Application app)
     {
-        // Resolve the service from the app's handler service provider
         var service = GetAgentService(app);
         if (service != null)
         {
@@ -70,23 +102,28 @@ public static class GtkAgentServiceExtensions
         }
     }
 
-    private static int? ReadAssemblyMetadataPort()
+    private static string? ReadAssemblyMetadata(string key)
     {
         try
         {
-            var attrs = System.Reflection.Assembly.GetEntryAssembly()?
-                .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
-
-            if (attrs != null)
+            var entry = System.Reflection.Assembly.GetEntryAssembly();
+            if (entry != null)
             {
+                var attrs = entry.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
                 foreach (System.Reflection.AssemblyMetadataAttribute attr in attrs)
                 {
-                    if (attr.Key == "MauiDevFlowPort" && int.TryParse(attr.Value, out var port))
-                        return port;
+                    if (attr.Key == key)
+                        return attr.Value;
                 }
             }
         }
         catch { }
         return null;
+    }
+
+    private static int? ReadAssemblyMetadataPort()
+    {
+        var value = ReadAssemblyMetadata("MauiDevFlowPort");
+        return value != null && int.TryParse(value, out var port) ? port : null;
     }
 }
