@@ -62,6 +62,12 @@ public class FileLogWriter : IDisposable
         _buffer.Enqueue(json);
     }
 
+    /// <summary>
+    /// Synchronously drains the in-memory buffer to disk.
+    /// Exposed for testing — production code relies on the background timer.
+    /// </summary>
+    internal void Flush() => DrainBuffer();
+
     private void DrainBuffer()
     {
         if (_disposed || _buffer.IsEmpty) return;
