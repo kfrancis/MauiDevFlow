@@ -61,7 +61,7 @@ public class BufferedLoggingTests : IDisposable
         // File should now contain the entries
         var currentFile = Path.Combine(_logDir, "log-current.jsonl");
         Assert.True(File.Exists(currentFile));
-        var lines = File.ReadAllLines(currentFile).Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
+        var lines = ReadAllLinesShared(currentFile).Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
         Assert.Equal(2, lines.Count);
 
         // Reader should still return them correctly
@@ -282,5 +282,16 @@ public class BufferedLoggingTests : IDisposable
             Source: source
         );
         provider.Writer.Write(entry);
+    }
+
+    // Opens the file with FileShare.ReadWrite so it can be read while the writer still holds it open (Windows).
+    private static string[] ReadAllLinesShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line)
+            lines.Add(line);
+        return lines.ToArray();
     }
 }
