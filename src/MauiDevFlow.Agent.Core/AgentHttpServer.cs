@@ -81,7 +81,7 @@ public class AgentHttpServer : IDisposable
                 await WriteResponseAsync(stream, response, ct).ConfigureAwait(false);
             }
         }
-        catch { /* swallow individual request errors */ }
+        catch (Exception ex) { Console.WriteLine($"[MauiDevFlow.Agent] Request error: {ex.GetType().Name}: {ex.Message}"); }
     }
 
     private async Task<HttpRequest?> ReadRequestAsync(NetworkStream stream, CancellationToken ct)

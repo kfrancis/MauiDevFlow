@@ -56,7 +56,7 @@ public class BufferedLoggingTests : IDisposable
         WriteEntry(provider, "DRAIN_2", DateTime.UtcNow.AddMilliseconds(1));
 
         // Wait for drain timer to fire (1s interval + margin)
-        Thread.Sleep(2000);
+        provider.Writer.Flush();
 
         // File should now contain the entries
         var currentFile = Path.Combine(_logDir, "log-current.jsonl");
@@ -80,7 +80,7 @@ public class BufferedLoggingTests : IDisposable
         // Write some entries and wait for drain
         WriteEntry(provider, "OLD_1", baseTime);
         WriteEntry(provider, "OLD_2", baseTime.AddSeconds(1));
-        Thread.Sleep(2000);
+        provider.Writer.Flush();
 
         // Now write more entries (these stay in buffer)
         WriteEntry(provider, "NEW_1", baseTime.AddSeconds(2));
@@ -109,7 +109,7 @@ public class BufferedLoggingTests : IDisposable
         Assert.Equal(10, before.Count);
 
         // Wait for drain
-        Thread.Sleep(2000);
+        provider.Writer.Flush();
 
         // Read after drain: all from disk (buffer empty)
         var after = provider.Reader.Read(100);
@@ -160,7 +160,7 @@ public class BufferedLoggingTests : IDisposable
         // Write 5 entries and drain to disk
         for (int i = 0; i < 5; i++)
             WriteEntry(provider, $"DISK_{i:D2}", baseTime.AddSeconds(i));
-        Thread.Sleep(2000);
+        provider.Writer.Flush();
 
         // Write 5 more (stay in buffer)
         for (int i = 0; i < 5; i++)
@@ -210,7 +210,7 @@ public class BufferedLoggingTests : IDisposable
             WriteEntry(provider, $"ROT_{i:D2} padding {new string('x', 100)}", baseTime.AddSeconds(i));
 
         // Wait for drain + rotation
-        Thread.Sleep(2000);
+        provider.Writer.Flush();
 
         // Should have multiple files
         var files = Directory.GetFiles(_logDir, "log-*.jsonl");
