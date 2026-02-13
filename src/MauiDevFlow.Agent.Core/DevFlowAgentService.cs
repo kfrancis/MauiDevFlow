@@ -125,6 +125,8 @@ public class DevFlowAgentService : IDisposable
     private Task<HttpResponse> HandleStatus(HttpRequest request)
     {
         var window = _app?.Windows.FirstOrDefault();
+        var w = window?.Width ?? 0;
+        var h = window?.Height ?? 0;
         return Task.FromResult(HttpResponse.Json(new
         {
             agent = "MauiDevFlow.Agent",
@@ -135,8 +137,8 @@ public class DevFlowAgentService : IDisposable
             appName = _app?.GetType().Assembly.GetName().Name ?? "unknown",
             running = _app != null,
             cdpReady = CdpReadyCheck?.Invoke() ?? false,
-            windowWidth = window?.Width ?? 0,
-            windowHeight = window?.Height ?? 0
+            windowWidth = double.IsFinite(w) ? w : 0,
+            windowHeight = double.IsFinite(h) ? h : 0
         }));
     }
 

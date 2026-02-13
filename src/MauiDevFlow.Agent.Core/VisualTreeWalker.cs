@@ -253,13 +253,13 @@ public class VisualTreeWalker
             info.IsVisible = ve.IsVisible;
             info.IsEnabled = ve.IsEnabled;
             info.IsFocused = ve.IsFocused;
-            info.Opacity = ve.Opacity;
+            info.Opacity = double.IsFinite(ve.Opacity) ? ve.Opacity : 1;
             info.Bounds = new BoundsInfo
             {
-                X = ve.Frame.X,
-                Y = ve.Frame.Y,
-                Width = ve.Frame.Width,
-                Height = ve.Frame.Height
+                X = double.IsFinite(ve.Frame.X) ? ve.Frame.X : 0,
+                Y = double.IsFinite(ve.Frame.Y) ? ve.Frame.Y : 0,
+                Width = double.IsFinite(ve.Frame.Width) ? ve.Frame.Width : 0,
+                Height = double.IsFinite(ve.Frame.Height) ? ve.Frame.Height : 0
             };
 
             // Populate native view info from handler
