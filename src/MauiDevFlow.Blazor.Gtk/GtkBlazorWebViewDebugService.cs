@@ -13,11 +13,117 @@ public class GtkBlazorWebViewDebugService : IDisposable
     private bool _injecting;
     private bool _chobitsuLoaded;
     private CancellationTokenSource? _drainCts;
+    private CancellationTokenSource? _discoveryCts;
 
     public Action<string>? LogCallback { get; set; }
     public Action<string, string, string?>? WebViewLogCallback { get; set; }
 
     public bool IsReady => _isInitialized && _webView != null && _chobitsuLoaded;
+
+    /// <summary>
+    /// Starts a background task that periodically scans the visual tree for a BlazorWebView
+    /// and captures its WebKit.WebView for CDP commands.
+    /// </summary>
+    public void StartWebViewDiscovery()
+    {
+        _discoveryCts?.Cancel();
+        _discoveryCts = new CancellationTokenSource();
+        var ct = _discoveryCts.Token;
+
+        Task.Run(async () =>
+        {
+            Log("[BlazorDevFlow.Gtk] Starting WebView discovery...");
+            for (int attempt = 0; attempt < 300 && !ct.IsCancellationRequested; attempt++)
+            {
+                await Task.Delay(2000, ct);
+                if (_webView != null) return;
+
+                try
+                {
+                    var app = Microsoft.Maui.Controls.Application.Current;
+                    if (app == null) continue;
+
+                    var webView = FindWebKitWebView(app);
+                    if (webView != null)
+                    {
+                        Log("[BlazorDevFlow.Gtk] WebKit.WebView discovered from visual tree");
+                        await SetWebView(webView);
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"[BlazorDevFlow.Gtk] Discovery error: {ex.Message}");
+                }
+            }
+            Log("[BlazorDevFlow.Gtk] WebView discovery timed out");
+        }, ct);
+    }
+
+    private static global::WebKit.WebView? FindWebKitWebView(Microsoft.Maui.Controls.Application app)
+    {
+        foreach (var window in app.Windows)
+        {
+            if (window.Page is Microsoft.Maui.IVisualTreeElement root)
+            {
+                var webView = SearchForWebKitWebView(root);
+                if (webView != null) return webView;
+            }
+        }
+        return null;
+    }
+
+    private static global::WebKit.WebView? SearchForWebKitWebView(Microsoft.Maui.IVisualTreeElement element)
+    {
+        // Check if this element is a BlazorWebView (by type name to avoid direct reference)
+        if (element is Microsoft.Maui.Controls.View view)
+        {
+            var typeName = view.GetType().FullName ?? "";
+            if (typeName.Contains("BlazorWebView", StringComparison.OrdinalIgnoreCase))
+            {
+                var webView = ExtractWebKitWebView(view);
+                if (webView != null) return webView;
+            }
+        }
+
+        // Recurse children
+        foreach (var child in element.GetVisualChildren())
+        {
+            var webView = SearchForWebKitWebView(child);
+            if (webView != null) return webView;
+        }
+        return null;
+    }
+
+    private static global::WebKit.WebView? ExtractWebKitWebView(Microsoft.Maui.Controls.View view)
+    {
+        try
+        {
+            var handler = view.Handler;
+            if (handler == null) return null;
+
+            var platformView = handler.PlatformView;
+            if (platformView == null) return null;
+
+            // The BlazorWebViewHandler's PlatformView is a Gtk.Box containing the WebKit.WebView
+            if (platformView is global::Gtk.Box box)
+            {
+                var child = box.GetFirstChild();
+                while (child != null)
+                {
+                    if (child is global::WebKit.WebView webView)
+                        return webView;
+                    child = child.GetNextSibling();
+                }
+            }
+
+            // Also check if PlatformView itself is a WebView
+            if (platformView is global::WebKit.WebView directWebView)
+                return directWebView;
+        }
+        catch { }
+        return null;
+    }
 
     /// <summary>
     /// Sets the WebKit.WebView reference for JS evaluation.
@@ -64,30 +170,31 @@ public class GtkBlazorWebViewDebugService : IDisposable
                 return;
             }
 
-            // Wait for chobitsu to be available
-            for (int i = 0; i < 30; i++)
-            {
-                var check = await EvaluateJavaScriptAsync(
-                    "typeof chobitsu !== 'undefined' ? 'loaded' : 'waiting'");
-                if (check == "loaded") break;
+            // Check if chobitsu is already loaded
+            var check = await EvaluateJavaScriptAsync(
+                "typeof chobitsu !== 'undefined' ? 'loaded' : 'waiting'");
 
-                if (i == 10)
+            if (check != "loaded")
+            {
+                // Inject chobitsu.js directly from embedded resource
+                Log("[BlazorDevFlow.Gtk] Injecting chobitsu.js from embedded resource...");
+                var chobitsuJs = ScriptResources.Load("chobitsu.js");
+                await EvaluateJavaScriptAsync(chobitsuJs);
+
+                // Verify it loaded
+                for (int i = 0; i < 20; i++)
                 {
-                    var hasTag = await EvaluateJavaScriptAsync(
-                        "document.querySelector('script[src*=\"chobitsu\"]') ? 'found' : 'missing'");
-                    if (hasTag == "missing")
-                    {
-                        Log("[BlazorDevFlow.Gtk] No chobitsu script tag found. Add <script src=\"chobitsu.js\"></script> to wwwroot/index.html");
-                        return;
-                    }
+                    check = await EvaluateJavaScriptAsync(
+                        "typeof chobitsu !== 'undefined' ? 'loaded' : 'waiting'");
+                    if (check == "loaded") break;
+                    await Task.Delay(250);
                 }
 
-                if (i == 29)
+                if (check != "loaded")
                 {
-                    Log("[BlazorDevFlow.Gtk] Chobitsu not loaded after 15s");
+                    Log("[BlazorDevFlow.Gtk] Chobitsu failed to load after injection");
                     return;
                 }
-                await Task.Delay(500);
             }
 
             var script = ScriptResources.Load("chobitsu-init.js");
@@ -284,5 +391,7 @@ public class GtkBlazorWebViewDebugService : IDisposable
         _disposed = true;
         _drainCts?.Cancel();
         _drainCts?.Dispose();
+        _discoveryCts?.Cancel();
+        _discoveryCts?.Dispose();
     }
 }
