@@ -126,8 +126,9 @@ The GTK packages use `GirCore.Gtk-4.0` for native widget inspection and `GirCore
 for Blazor CDP support. They target plain `net10.0` (no platform TFM) and don't require
 MAUI workloads to build. See [references/linux.md](references/linux.md) for full Linux setup.
 
-**Port configuration:** If no `.mauidevflow` exists in the project directory, create one
-with a random port between 9223–9899 to avoid collisions with other projects:
+**Port configuration:** The broker automatically assigns ports to agents (range 10223–10899).
+No manual configuration is needed for most workflows. If the broker isn't available, create a
+`.mauidevflow` file in the project directory as a fallback:
 
 ```json
 {
@@ -207,15 +208,24 @@ Use whatever emulator/simulator is available — don't waste time finding one th
 
 For Android emulators, set up port forwarding after deploy:
 ```bash
-adb reverse tcp:9223 tcp:9223    # Agent + CDP (single port)
+adb reverse tcp:19223 tcp:19223  # Broker (required — lets agent register with host broker)
+adb forward tcp:<port> tcp:<port> # Agent (required — lets CLI reach agent in emulator)
 ```
+
+The broker port (`19223`) reverse is set up once per emulator session. The agent port forward
+is needed per-app and uses the port shown in `maui-devflow list` after the agent registers.
 
 ### 4. Verify Connectivity
 
 ```bash
+maui-devflow list                 # Show all registered agents (via broker)
 maui-devflow MAUI status          # Agent connection + CDP readiness
 maui-devflow cdp status           # CDP-specific connection check
 ```
+
+The `list` command shows all agents registered with the broker, including their platform,
+TFM, and assigned port. Use this to verify the app registered and to find the port for
+`--agent-port` when multiple apps are running.
 
 ### 5. Inspect and Interact
 
@@ -390,7 +400,10 @@ If the build fails, see **Troubleshooting** below.
 
 ### maui-devflow MAUI (Native Agent)
 
-Global options: `--agent-host` (default localhost), `--agent-port` (default 9223), `--platform`.
+Global options: `--agent-host` (default localhost), `--agent-port` (auto-discovered via broker), `--platform`.
+
+These options work on any subcommand position: `maui-devflow MAUI status --agent-port 9225`
+or `maui-devflow --agent-port 9225 MAUI status` — both are valid.
 
 | Command | Description |
 |---------|-------------|
@@ -433,6 +446,44 @@ CDP commands use the same agent port — all communication goes through a single
 | `cdp Input insertText <text>` | Insert text at focused element |
 | `cdp Input fill <selector> <text>` | Focus + fill text into element |
 
+### maui-devflow Broker & Discovery
+
+The broker is a background daemon that manages port assignments for all running agents.
+The CLI auto-starts the broker on first use — no manual setup needed.
+
+| Command | Description |
+|---------|-------------|
+| `list` | Show all registered agents (ID, app, platform, TFM, port, uptime) |
+| `broker status` | Broker daemon status and connected agent count |
+| `broker start` | Start broker daemon (auto-started by CLI — rarely needed manually) |
+| `broker stop` | Stop broker daemon |
+| `broker log` | Show broker log file |
+
+**How port discovery works:** When you run any `MAUI` or `cdp` command, the CLI:
+1. Auto-starts the broker if not running
+2. Queries the broker for agents matching the current project (`.csproj` in cwd)
+3. If one agent matches → uses its port automatically
+4. If multiple match → prints a disambiguation table to stderr
+5. Falls back to `.mauidevflow` config file → default 9223
+
+**Multiple apps simultaneously:** With the broker, you can run iOS, Android, and Mac Catalyst
+builds of the same project at the same time. Each gets a unique port (assigned from range
+10223–10899). Use `maui-devflow list` to see all agents and their ports:
+
+```bash
+maui-devflow list
+# ID             App          Platform       TFM                      Port   Uptime
+# 7ff0e6fd13d9   MyApp        MacCatalyst    net10.0-maccatalyst      10223  5m 30s
+# 1f11bcb92109   MyApp        iOS            net10.0-ios              10224  3m 15s
+# c228eddbc005   MyApp        Android        net10.0-android          10225  1m 45s
+```
+
+Then target a specific platform:
+```bash
+maui-devflow MAUI status --agent-port 10224    # iOS agent
+maui-devflow MAUI tree --agent-port 10225      # Android agent
+```
+
 ### Agent REST API (Direct HTTP)
 
 The agent exposes JSON endpoints on port 9223 (configurable via `-p:MauiDevFlowPort`):
@@ -464,8 +515,13 @@ For detailed platform-specific setup, simulator/emulator management, and trouble
 
 ## Multi-Project / Custom Ports
 
-The default port is 9223. For custom ports, create a `.mauidevflow` file in the project
-directory. Both the MSBuild targets and the CLI read this file automatically:
+**With the broker (recommended):** The broker automatically assigns ports to agents from
+range 10223–10899. No manual port configuration needed — just build and run your apps.
+Use `maui-devflow list` to see assigned ports. The CLI auto-discovers the right agent
+when run from the project directory.
+
+**Legacy `.mauidevflow` config (fallback):** If the broker isn't available, you can still
+use a `.mauidevflow` file in the project directory for explicit port configuration:
 
 ```json
 {
@@ -480,7 +536,7 @@ With this file in place:
 
 No need to pass `-p:MauiDevFlowPort` or `--agent-port` — the config file handles it.
 
-**Port priority:** Code-set `options.Port` > MSBuild `-p:MauiDevFlowPort` > `.mauidevflow` > Default 9223.
+**Port priority:** Explicit `--agent-port` > Broker discovery > `.mauidevflow` config > Default 9223.
 
 The CLI looks for `.mauidevflow` in the current working directory. Run CLI commands from
 the project directory (where the file lives) for automatic port detection.
@@ -492,16 +548,21 @@ the project directory (where the file lives) for automatic port detection.
 If `maui-devflow MAUI status` fails with connection refused:
 
 1. **App not running?** Verify the app launched: check the build output for errors.
-2. **Wrong port?** Ensure `.mauidevflow` port matches between build and CLI. Run CLI from
-   the project directory so it auto-detects the config file.
-3. **Port already in use?** Another process may hold the port. Check with:
+2. **Check the broker:** Run `maui-devflow list` to see if the agent registered. If the list
+   is empty, the app may not have connected to the broker yet (wait a few seconds and retry).
+3. **Wrong port?** If using `.mauidevflow`, ensure the port matches between build and CLI.
+   Run CLI from the project directory so it auto-detects the config file.
+4. **Port already in use?** Another process may hold the port. Check with:
    ```bash
    lsof -i :<port>       # macOS/Linux
    ```
-   Pick a different port in `.mauidevflow` and rebuild.
-4. **Android?** Did you run `adb reverse tcp:<port> tcp:<port>`? Re-run it after each deploy.
-5. **Mac Catalyst?** Check entitlements include `network.server` (see setup.md step 5).
-6. **Linux/GTK?** No special network setup needed — runs directly on localhost. Check if the app started successfully.
+   With the broker, this is less common since ports are auto-assigned.
+5. **Android?** Did you run `adb reverse tcp:19223 tcp:19223` (for broker) and
+   `adb forward tcp:<port> tcp:<port>` (for agent)? Re-run after each deploy.
+6. **Mac Catalyst?** Check entitlements include `network.server` (see setup.md step 5).
+7. **Linux/GTK?** No special network setup needed — runs directly on localhost. Check if the app started successfully.
+8. **Broker issues?** `maui-devflow broker status` to check. `maui-devflow broker stop` then
+   retry (CLI will auto-restart it).
 
 ### Build Failures
 
@@ -565,7 +626,10 @@ so the code signature stays consistent across rebuilds.
   Routes are defined in AppShell.xaml via `Route` property on ShellContent elements.
 - For Blazor Hybrid, `cdp snapshot` is the most AI-friendly way to read page state.
 - Build times: Mac Catalyst ~5-10s, iOS ~30-60s, Android ~30-90s, Linux/GTK ~5-10s. Set appropriate timeouts.
-- After Android deploy, always run `adb reverse` for port forwarding (match the port in `.mauidevflow` or default 9223).
+- After Android deploy, always run `adb reverse tcp:19223 tcp:19223` for broker connectivity,
+  then `adb forward tcp:<port> tcp:<port>` for agent access (get port from `maui-devflow list`).
+- **Multiple platforms at once**: The broker handles port assignment automatically. Run
+  `maui-devflow list` to see all running agents and their ports.
 - **Property inspection** is more reliable than screenshots for verifying exact runtime values
   (colors, sizes, visibility). Use `tree` → `property` workflow for systematic debugging.
 - **Application logs** are captured automatically from `ILogger`. Use `MAUI logs` to fetch

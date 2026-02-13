@@ -107,10 +107,14 @@ blazorService?.WireBlazorCdpToAgent();
 - `Enabled` — Enable/disable the agent (default: true)
 - `MaxTreeDepth` — Max depth for visual tree queries, 0 = unlimited (default: 0)
 
-## 3b. Port Configuration (.mauidevflow)
+## 3b. Port Configuration
 
-Create a `.mauidevflow` file in the project directory to set a custom port. Pick a random
-port between 9223–9899 to avoid collisions with other projects:
+**Automatic (via broker):** The CLI includes a broker daemon that automatically assigns
+ports to agents. No manual port configuration is needed — the broker handles it. The CLI
+auto-starts the broker on first use. See the main SKILL.md for details on the broker.
+
+**Manual fallback (.mauidevflow):** If the broker isn't available, create a `.mauidevflow`
+file in the project directory to set an explicit port:
 
 ```json
 {
@@ -122,10 +126,7 @@ Both the MSBuild targets and the CLI read this file automatically:
 - **Build**: `dotnet build -t:Run` — agent starts on the configured port
 - **CLI**: `maui-devflow MAUI status` — connects to the configured port (when run from project dir)
 
-No `-p:MauiDevFlowPort` or `--agent-port` flags needed. This file should be committed to
-source control so all developers and CI agents use the same port.
-
-**Port priority:** Code-set `options.Port` > `-p:MauiDevFlowPort` > `.mauidevflow` > default 9223.
+**Port priority:** Explicit `--agent-port` > Broker discovery > `.mauidevflow` > default 9223.
 
 **Blazor options:**
 - `Enabled` — Enable/disable CDP support (default: true)
@@ -221,33 +222,44 @@ instead of the home directory root. This path is not TCC-protected.
 
 ## 6. Android: Port Forwarding
 
-After deploying to an Android emulator, set up port forwarding so the CLI can reach the agent:
+After deploying to an Android emulator, set up port forwarding for the broker and agent:
 
 ```bash
-adb reverse tcp:9223 tcp:9223    # Agent + CDP (single port)
+adb reverse tcp:19223 tcp:19223  # Broker (lets agent register with host broker)
+adb forward tcp:<port> tcp:<port> # Agent (lets CLI reach agent — get port from `maui-devflow list`)
 ```
 
-This is needed because the emulator runs in its own network namespace. Physical devices
-connected via USB also need this. If using a custom port (via `.mauidevflow` or
-`-p:MauiDevFlowPort=9347`), forward that port instead: `adb reverse tcp:9347 tcp:9347`.
+The broker reverse (`tcp:19223`) is needed so the agent inside the emulator can connect to
+the host's broker daemon. Set this up once per emulator session.
+
+The agent forward uses the port shown in `maui-devflow list` after the agent registers
+(range 10223–10899).
+
+**Fallback (no broker):** If using direct mode with a `.mauidevflow` config file:
+```bash
+adb reverse tcp:9223 tcp:9223    # Direct agent port (single port for Agent + CDP)
+```
 
 ## 7. Verify Setup
 
 After building and running the app:
 
 ```bash
+maui-devflow list                 # Should show registered agents (via broker)
 maui-devflow MAUI status          # Should show agent info, platform, app name
 maui-devflow cdp status           # Should show "Connected" (Blazor Hybrid only)
 ```
 
 If status commands fail:
+- **Broker not running?** `maui-devflow broker status` — CLI auto-starts the broker, but check if it's healthy
+- **Agent not registered?** `maui-devflow list` — wait a few seconds for the agent to register
 - **Mac Catalyst:** Check entitlements (Step 5)
-- **Android:** Check port forwarding (Step 6) — re-run `adb reverse` after each deploy
+- **Android:** Check port forwarding (Step 6) — need both `adb reverse tcp:19223` and `adb forward tcp:<port>`
 - **iOS Simulator:** Should work without extra config
 - **Linux/GTK:** Should work without extra config — runs directly on localhost
 - **All platforms:** Ensure the app is running and the `#if DEBUG` block is active
 - **Port conflict:** Check if another process holds the port: `lsof -i :9223` (or your configured port)
-- **Wrong port:** Ensure CLI is run from the project directory so it reads `.mauidevflow`
+- **Wrong port:** Use `maui-devflow list` to find the assigned port, or ensure CLI is run from the project directory
 
 ## Quick Checklist
 
@@ -259,5 +271,6 @@ For an AI agent setting up MauiDevFlow in a new project:
 4. [ ] `builder.AddMauiBlazorDevFlowTools(...)` in MauiProgram.cs (Blazor Hybrid only)
 5. [ ] Chobitsu auto-injected via JS initializer (Blazor Hybrid — no manual step needed)
 6. [ ] Mac Catalyst entitlements include `network.server` (Mac Catalyst only)
-7. [ ] `adb reverse` port forwarding (Android only)
+7. [ ] `adb reverse tcp:19223` for broker + `adb forward tcp:<port>` for agent (Android only)
 8. [ ] Linux/GTK: `app.StartDevFlowAgent()` called after app activation
+9. [ ] Verify with `maui-devflow list` and `maui-devflow MAUI status`
