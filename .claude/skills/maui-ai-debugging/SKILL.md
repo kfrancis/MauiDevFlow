@@ -77,6 +77,9 @@ If packages are outdated, suggest updating them:
 ```bash
 dotnet add package Redth.MauiDevFlow.Agent
 dotnet add package Redth.MauiDevFlow.Blazor    # only if Blazor Hybrid
+# For Linux/GTK projects, use the .Gtk variants instead:
+# dotnet add package Redth.MauiDevFlow.Agent.Gtk
+# dotnet add package Redth.MauiDevFlow.Blazor.Gtk
 ```
 
 ### 4. Re-run setup verification
@@ -94,12 +97,34 @@ Blazor script tag, Mac Catalyst entitlements, and Android port forwarding, see
 **Quick summary:**
 1. Add NuGet packages (`Redth.MauiDevFlow.Agent`, and `Redth.MauiDevFlow.Blazor` for Blazor Hybrid)
    - For **Linux/GTK apps**, use `Redth.MauiDevFlow.Agent.Gtk` and `Redth.MauiDevFlow.Blazor.Gtk` instead
+   - See "Detecting Linux/GTK projects" below
 2. Register in `MauiProgram.cs` inside `#if DEBUG`
 3. Create `.mauidevflow` with a random port (see below)
 4. For Blazor Hybrid: chobitsu.js is auto-injected (no manual script tag needed)
 5. For Mac Catalyst: ensure `network.server` entitlement
 6. For Android: run `adb reverse` for the configured port
 7. For Linux: no special network setup needed (direct localhost)
+
+**Detecting Linux/GTK projects:** There is no `-linux` TFM in MAUI. Linux/GTK apps use
+`Maui.Gtk` (community package) and target plain `net10.0` (or `net9.0`, etc.) without a
+platform suffix. To detect whether a project is a Linux/GTK app, check the `.csproj` for:
+
+```bash
+# Look for GTK/GirCore references in the project
+grep -i 'GirCore\|Maui\.Gtk\|Gtk-4\.0' *.csproj Directory.Build.props 2>/dev/null
+```
+
+If the project references `GirCore.Gtk-4.0` or `Maui.Gtk`, it's a Linux/GTK app — use
+the `.Gtk` NuGet packages instead of the standard ones:
+
+| Standard MAUI (iOS/Android/Mac/Win) | Linux/GTK equivalent |
+|--------------------------------------|----------------------|
+| `Redth.MauiDevFlow.Agent` | `Redth.MauiDevFlow.Agent.Gtk` |
+| `Redth.MauiDevFlow.Blazor` | `Redth.MauiDevFlow.Blazor.Gtk` |
+
+The GTK packages use `GirCore.Gtk-4.0` for native widget inspection and `GirCore.WebKit-6.0`
+for Blazor CDP support. They target plain `net10.0` (no platform TFM) and don't require
+MAUI workloads to build. See [references/linux.md](references/linux.md) for full Linux setup.
 
 **Port configuration:** If no `.mauidevflow` exists in the project directory, create one
 with a random port between 9223–9899 to avoid collisions with other projects:
