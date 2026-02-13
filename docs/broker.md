@@ -8,7 +8,7 @@ several MAUI apps (or the same app on different platforms) simultaneously.
 
 The broker is a lightweight background process that:
 
-- **Assigns unique ports** to each MAUI agent from a shared pool (9223–9899)
+- **Assigns unique ports** to each MAUI agent from a shared pool (10223–10899)
 - **Tracks running agents** so the CLI can discover them without manual `--agent-port` flags
 - **Detects disconnections instantly** via persistent WebSocket connections
 - **Starts and stops automatically** — you rarely need to manage it directly
@@ -67,13 +67,17 @@ When a MAUI app starts with `AddMauiDevFlowAgent()`:
    }
    ```
 
-3. The broker assigns a free port from the pool (9223–9899), verifying the port is
+3. The broker assigns a free port from the pool (10223–10899), verifying the port is
    actually available via a TCP bind test. It responds:
    ```json
-   { "type": "registered", "id": "a1b2c3d4e5f6", "port": 9225 }
+   { "type": "registered", "id": "a1b2c3d4e5f6", "port": 10223 }
    ```
 
-4. The agent starts its HTTP server on the assigned port (9225 in this example).
+4. The agent starts its HTTP server on the assigned port (10223 in this example).
+
+   **Note:** If the agent already has an HTTP server running (e.g., from a `.mauidevflow`
+   config or a previous broker connection), it sends `currentPort` in the registration
+   message. The broker uses that port instead of allocating a new one from the pool.
 
 5. The WebSocket connection stays open. The broker uses it as a liveness signal —
    if the connection drops, the agent is immediately marked as disconnected and
@@ -102,10 +106,11 @@ When you run a CLI command like `maui-devflow MAUI status`:
 
 ### Port Assignment
 
-The broker assigns ports from a pool of **9223–9899** (677 ports). For each new
-agent:
+The broker assigns ports from a pool of **10223–10899** (677 ports). This range was
+chosen to avoid collisions with ports in legacy `.mauidevflow` config files (which
+typically use 9223–9899). For each new agent:
 
-1. Iterate from 9223 upward
+1. Iterate from 10223 upward
 2. Skip ports already assigned to other connected agents
 3. For each candidate, perform a real TCP bind test (start a `TcpListener`, then
    immediately stop it) to verify the port is actually free
@@ -182,8 +187,8 @@ Shows all agents currently registered with the broker:
 ```
 ID             App                  Platform       TFM                      Port   Uptime
 ------------------------------------------------------------------------------------------
-7ff0e6fd13d9   MauiTodo             MacCatalyst    net10.0-maccatalyst      9223   2m 15s
-a3c9e1f20b44   MauiTodo             Android        net10.0-android          9224   1m 30s
+7ff0e6fd13d9   MauiTodo             MacCatalyst    net10.0-maccatalyst      10223  2m 15s
+a3c9e1f20b44   MauiTodo             Android        net10.0-android          10224  1m 30s
 ```
 
 ### Multiple Agents — Disambiguation
@@ -197,8 +202,8 @@ Multiple agents connected. Use --agent-port to specify which one:
 
 ID             App                  Platform       TFM                      Port
 ----------------------------------------------------------------------------------
-7ff0e6fd13d9   MauiTodo             MacCatalyst    net10.0-maccatalyst      9223
-a3c9e1f20b44   MauiTodo             Android        net10.0-android          9224
+7ff0e6fd13d9   MauiTodo             MacCatalyst    net10.0-maccatalyst      10223
+a3c9e1f20b44   MauiTodo             Android        net10.0-android          10224
 
 Example: maui-devflow MAUI status --agent-port <port>
 ```
@@ -243,20 +248,26 @@ simultaneously without manual port management.
 
 ## Agent Reconnection
 
-If the broker restarts or the WebSocket connection drops, the agent automatically
-attempts to reconnect:
+The agent automatically reconnects to the broker in two scenarios:
+
+1. **Broker restarts or WebSocket drops** — reconnection starts immediately
+2. **Initial connection fails** (broker not yet running) — reconnection starts in the background
+   while the agent falls back to its config/default port
+
+Backoff schedule:
 
 | Attempt | Delay  |
 |---------|--------|
-| 1       | 500ms  |
-| 2       | 1s     |
-| 3       | 2s     |
-| 4       | 5s     |
-| 5+      | 10s    |
+| 1       | 2s     |
+| 2       | 5s     |
+| 3       | 10s    |
+| 4+      | 15s    |
 
-After ~60 seconds of failed attempts (12 retries), the agent gives up and continues
-running on its last-assigned port. The HTTP server stays up throughout — only broker
-discovery is lost.
+Retries continue **indefinitely** — the agent never gives up trying to reach the broker.
+When reconnecting after the HTTP server is already running, the agent sends `currentPort`
+in the registration so the broker reuses its existing port rather than assigning a new one.
+
+The HTTP server stays up throughout reconnection attempts — only broker discovery is affected.
 
 ## Platform Connectivity
 
@@ -299,7 +310,7 @@ The broker exposes a simple HTTP API on port 19223 for CLI and diagnostic use:
     "tfm": "net10.0-maccatalyst",
     "platform": "MacCatalyst",
     "appName": "MyApp",
-    "port": 9223,
+    "port": 10223,
     "connectedAt": "2026-02-13T01:20:01Z"
   }
 ]

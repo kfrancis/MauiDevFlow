@@ -20,6 +20,7 @@ manually check the simulator.
 - **Native MAUI Automation** — Visual tree inspection, element interaction (tap, fill, clear), screenshots via in-app Agent
 - **Blazor WebView Debugging** — CDP bridge using Chobitsu for JavaScript evaluation, DOM manipulation, page navigation
 - **Unified Logging** — Native `ILogger` and WebView `console.log/warn/error` unified into a single log stream with source filtering
+- **Broker Daemon** — Automatic port assignment and agent discovery for simultaneous multi-app debugging
 - **CLI Tool** (`maui-devflow`) — Scriptable commands for both native and Blazor automation
 - **Driver Library** — Platform-aware (Mac Catalyst, Android, iOS Simulator, Linux/GTK) orchestration
 - **AI Skill** — Claude Code skill (`.claude/skills/maui-ai-debugging`) for AI-driven development workflows
@@ -85,13 +86,18 @@ Both methods extend `MauiAppBuilder`.
 
 #### 3. Port Configuration (optional)
 
-Create a `.mauidevflow` in your project directory to use a custom port:
+The CLI includes a **broker daemon** that automatically assigns ports to each running agent —
+no manual configuration needed for most workflows. Run `maui-devflow list` to see all connected
+agents and their ports.
+
+For explicit port control (or when the broker isn't available), create a `.mauidevflow` in
+your project directory:
 
 ```json
 { "port": 9347 }
 ```
 
-Both the build and CLI auto-detect this file — no flags needed. Useful when running multiple MAUI projects simultaneously.
+Both the build and CLI auto-detect this file — no flags needed. See [broker documentation](docs/broker.md) for details.
 
 #### 3. Blazor Hybrid: Automatic Setup
 
@@ -113,7 +119,7 @@ dotnet tool install --global appledev.tools     # apple (simulators, provisionin
 #### 5. Platform-Specific Setup
 
 - **Mac Catalyst:** Add `com.apple.security.network.server` entitlement (see [setup guide](.claude/skills/maui-ai-debugging/references/setup.md#5-mac-catalyst-entitlements))
-- **Android Emulator:** Run `adb reverse tcp:9223 tcp:9223`
+- **Android Emulator:** Run `adb reverse tcp:19223 tcp:19223` (broker) and `adb forward tcp:<port> tcp:<port>` (agent — get port from `maui-devflow list`)
 - **iOS Simulator:** No extra setup needed
 - **Linux/GTK:** No extra setup needed (see [Linux guide](.claude/skills/maui-ai-debugging/references/linux.md))
 
@@ -122,6 +128,9 @@ dotnet tool install --global appledev.tools     # apple (simulators, provisionin
 ### Verify It Works
 
 ```bash
+# List all connected agents (via broker)
+maui-devflow list
+
 # Check agent connection
 maui-devflow MAUI status
 
@@ -193,7 +202,8 @@ maui-devflow cdp Runtime evaluate "document.head.insertAdjacentHTML('beforeend',
 
 ## Agent API
 
-The Agent runs inside the MAUI app and exposes an HTTP/JSON REST API on port 9223.
+The Agent runs inside the MAUI app and exposes an HTTP/JSON REST API. The port is
+auto-assigned by the broker (range 10223–10899), or configurable via `.mauidevflow` / `--agent-port`.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -230,6 +240,7 @@ tests/
 ├── MauiDevFlow.Console/        # Console test app for CDP
 └── MauiDevFlow.Tests/          # Unit and integration tests
 docs/
+├── broker.md                   # Broker daemon architecture and API
 └── setup-guides/               # Platform-specific setup (Android, Apple, Windows)
 ```
 
@@ -249,7 +260,7 @@ Hybrid page, connected via Shell navigation (`//native` and `//blazor` routes). 
 |----------|-------|------------|---------------|
 | Mac Catalyst | ✅ | ✅ | Direct localhost |
 | iOS Simulator | ✅ | ✅ | Shares host network |
-| Android Emulator | ✅ | 🔄 | `adb reverse tcp:9223 tcp:9223` |
+| Android Emulator | ✅ | 🔄 | `adb reverse` (broker) + `adb forward` (agent) |
 | Windows | 🔄 | 🔄 | Direct localhost |
 | Linux/GTK | ✅ | ✅ | Direct localhost |
 
@@ -272,6 +283,7 @@ agents the complete build → deploy → inspect → fix feedback loop. The skil
 - Building and deploying to iOS simulators, Android emulators, Mac Catalyst, and Linux/GTK
 - Using `maui-devflow` to inspect visual trees, interact with elements, and take screenshots
 - Using CDP to inspect and manipulate Blazor WebView content
+- Automatic port discovery via the broker daemon for multi-app workflows
 - Managing simulators/emulators with `apple`, `android`, `xcrun simctl`, and `adb`
 
 ### Installing the Skill
