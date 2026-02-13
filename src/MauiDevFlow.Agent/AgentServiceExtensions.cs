@@ -79,7 +79,12 @@ public static class AgentServiceExtensions
 
         var service = new PlatformAgentService(options);
         if (brokerReg != null)
+        {
+            // Tell the broker registration what port we ended up on, so late
+            // reconnections (broker started after app) register the correct port.
+            brokerReg.CurrentPort = options.Port;
             service.SetBrokerRegistration(brokerReg);
+        }
         builder.Services.AddSingleton<DevFlowAgentService>(service);
 
         if (options.EnableFileLogging)

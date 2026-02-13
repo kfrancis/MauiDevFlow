@@ -31,6 +31,12 @@ public class BrokerRegistration : IDisposable
     public int? AssignedPort => _assignedPort;
 
     /// <summary>
+    /// The port the agent's HTTP listener is actually running on.
+    /// Set after the listener starts so late reconnections can inform the broker.
+    /// </summary>
+    public int? CurrentPort { get; set; }
+
+    /// <summary>
     /// Whether the agent is currently connected to the broker.
     /// </summary>
     public bool IsConnected => _ws?.State == WebSocketState.Open;
@@ -46,28 +52,22 @@ public class BrokerRegistration : IDisposable
 
     /// <summary>
     /// Attempts to connect to the broker and register. Returns the assigned port, or null if broker is unavailable.
+    /// If the broker is unavailable, starts background retries so the agent registers when the broker comes up later.
     /// </summary>
     public async Task<int?> TryRegisterAsync(TimeSpan? timeout = null)
     {
         timeout ??= TimeSpan.FromSeconds(3);
+        _cts = new CancellationTokenSource();
 
         try
         {
-            _cts = new CancellationTokenSource();
             _ws = new ClientWebSocket();
 
             using var connectCts = new CancellationTokenSource(timeout.Value);
             await _ws.ConnectAsync(new Uri($"ws://localhost:{_brokerPort}/ws/agent"), connectCts.Token);
 
             // Send registration
-            var registration = JsonSerializer.Serialize(new
-            {
-                type = "register",
-                project = _project,
-                tfm = _tfm,
-                platform = _platform,
-                appName = _appName
-            });
+            var registration = BuildRegistrationJson();
             await _ws.SendAsync(Encoding.UTF8.GetBytes(registration), WebSocketMessageType.Text, true, connectCts.Token);
 
             // Read response
@@ -89,13 +89,15 @@ public class BrokerRegistration : IDisposable
             // Registration failed
             _ws.Dispose();
             _ws = null;
+            StartReconnection();
             return null;
         }
         catch
         {
-            // Broker unavailable — fall back
+            // Broker unavailable — start background retries so we register when it comes up
             _ws?.Dispose();
             _ws = null;
+            StartReconnection();
             return null;
         }
     }
@@ -121,9 +123,9 @@ public class BrokerRegistration : IDisposable
 
     private void StartReconnection()
     {
-        if (_disposed) return;
+        if (_disposed || _reconnectTimer != null) return;
 
-        var delays = new[] { 500, 1000, 2000, 5000, 10000 };
+        var delays = new[] { 2000, 5000, 10000, 15000 };
         var attempt = 0;
 
         _reconnectTimer = new Timer(async _ =>
@@ -139,14 +141,7 @@ public class BrokerRegistration : IDisposable
                 await _ws.ConnectAsync(new Uri($"ws://localhost:{_brokerPort}/ws/agent"), cts.Token);
 
                 // Re-register
-                var registration = JsonSerializer.Serialize(new
-                {
-                    type = "register",
-                    project = _project,
-                    tfm = _tfm,
-                    platform = _platform,
-                    appName = _appName
-                });
+                var registration = BuildRegistrationJson();
                 await _ws.SendAsync(Encoding.UTF8.GetBytes(registration), WebSocketMessageType.Text, true, cts.Token);
 
                 var buffer = new byte[1024];
@@ -165,18 +160,11 @@ public class BrokerRegistration : IDisposable
             }
             catch { }
 
-            // Schedule next retry
+            // Keep retrying with backoff up to 15s, indefinitely
             attempt++;
-            if (attempt >= 12) // ~60s total
-            {
-                _reconnectTimer?.Dispose();
-                _reconnectTimer = null;
-                return; // Give up
-            }
-
             var delay = delays[Math.Min(attempt, delays.Length - 1)];
-            _reconnectTimer?.Change(delay, Timeout.Infinite);
-        }, null, 500, Timeout.Infinite);
+            try { _reconnectTimer?.Change(delay, Timeout.Infinite); } catch { }
+        }, null, 2000, Timeout.Infinite);
     }
 
     /// <summary>
@@ -204,6 +192,16 @@ public class BrokerRegistration : IDisposable
         _ws?.Dispose();
         _cts?.Dispose();
     }
+
+    private string BuildRegistrationJson() => JsonSerializer.Serialize(new
+    {
+        type = "register",
+        project = _project,
+        tfm = _tfm,
+        platform = _platform,
+        appName = _appName,
+        currentPort = CurrentPort
+    });
 
     private record RegistrationResponse
     {
