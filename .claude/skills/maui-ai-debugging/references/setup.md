@@ -24,10 +24,25 @@ Add to your MAUI app's `.csproj`:
 </ItemGroup>
 ```
 
-- `Redth.MauiDevFlow.Agent` — Required for all MAUI apps. Provides the in-app agent
+- `Redth.MauiDevFlow.Agent` — Required for all MAUI apps (iOS, Android, Mac Catalyst, Windows). Provides the in-app agent
   for visual tree inspection, screenshots, tapping, filling text, etc.
-- `Redth.MauiDevFlow.Blazor` — Required for Blazor Hybrid apps. Provides the CDP bridge
+- `Redth.MauiDevFlow.Blazor` — Required for Blazor Hybrid apps (iOS, Android, Mac Catalyst, Windows). Provides the CDP bridge
   for DOM inspection, JavaScript evaluation, and Blazor debugging.
+
+### Linux/GTK Apps
+
+Linux/GTK apps (using Maui.Gtk) use separate packages:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="Redth.MauiDevFlow.Agent.Gtk" Version="*" />
+  <!-- Blazor Hybrid apps also need: -->
+  <PackageReference Include="Redth.MauiDevFlow.Blazor.Gtk" Version="*" />
+</ItemGroup>
+```
+
+- `Redth.MauiDevFlow.Agent.Gtk` — Agent for Linux/GTK apps. Uses GirCore.Gtk-4.0 for native GTK integration.
+- `Redth.MauiDevFlow.Blazor.Gtk` — CDP bridge for WebKitGTK-based BlazorWebView on Linux.
 
 ## 3. Register in MauiProgram.cs
 
@@ -42,6 +57,34 @@ var builder = MauiApp.CreateBuilder();
 builder.Services.AddBlazorWebViewDeveloperTools();          // Blazor Hybrid only
 builder.AddMauiDevFlowAgent();
 builder.AddMauiBlazorDevFlowTools(); // Blazor Hybrid only
+#endif
+```
+
+### Linux/GTK Registration
+
+For Linux/GTK apps, use the GTK-specific namespaces and add the agent startup call:
+
+```csharp
+using MauiDevFlow.Agent.Gtk;
+using MauiDevFlow.Blazor.Gtk;  // Blazor Hybrid only
+
+var builder = MauiApp.CreateBuilder();
+// ... your existing setup ...
+
+#if DEBUG
+builder.AddMauiDevFlowAgent();
+builder.AddMauiBlazorDevFlowTools(); // Blazor Hybrid only
+#endif
+```
+
+After the MAUI app is activated (e.g., in `OnActivate` or after `Application.Current` is available):
+
+```csharp
+#if DEBUG
+app.StartDevFlowAgent();
+// For Blazor, wire CDP to agent:
+var blazorService = app.Handler?.MauiContext?.Services.GetService<GtkBlazorWebViewDebugService>();
+blazorService?.WireBlazorCdpToAgent();
 #endif
 ```
 
@@ -187,6 +230,7 @@ If status commands fail:
 - **Mac Catalyst:** Check entitlements (Step 5)
 - **Android:** Check port forwarding (Step 6) — re-run `adb reverse` after each deploy
 - **iOS Simulator:** Should work without extra config
+- **Linux/GTK:** Should work without extra config — runs directly on localhost
 - **All platforms:** Ensure the app is running and the `#if DEBUG` block is active
 - **Port conflict:** Check if another process holds the port: `lsof -i :9223` (or your configured port)
 - **Wrong port:** Ensure CLI is run from the project directory so it reads `.mauidevflow`
@@ -195,10 +239,11 @@ If status commands fail:
 
 For an AI agent setting up MauiDevFlow in a new project:
 
-1. [ ] `Redth.MauiDevFlow.Agent` NuGet package added
-2. [ ] `Redth.MauiDevFlow.Blazor` NuGet package added (Blazor Hybrid only)
+1. [ ] `Redth.MauiDevFlow.Agent` NuGet package added (or `Redth.MauiDevFlow.Agent.Gtk` for Linux)
+2. [ ] `Redth.MauiDevFlow.Blazor` NuGet package added (Blazor Hybrid only; or `Redth.MauiDevFlow.Blazor.Gtk` for Linux)
 3. [ ] `builder.AddMauiDevFlowAgent(...)` in MauiProgram.cs inside `#if DEBUG`
 4. [ ] `builder.AddMauiBlazorDevFlowTools(...)` in MauiProgram.cs (Blazor Hybrid only)
 5. [ ] Chobitsu auto-injected via JS initializer (Blazor Hybrid — no manual step needed)
 6. [ ] Mac Catalyst entitlements include `network.server` (Mac Catalyst only)
 7. [ ] `adb reverse` port forwarding (Android only)
+8. [ ] Linux/GTK: `app.StartDevFlowAgent()` called after app activation

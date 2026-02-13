@@ -2,7 +2,10 @@
   "solution": {
     "path": "MauiDevFlow.sln",
     "projects": [
+      "src\\MauiDevFlow.Agent.Core\\MauiDevFlow.Agent.Core.csproj",
+      "src\\MauiDevFlow.Agent.Gtk\\MauiDevFlow.Agent.Gtk.csproj",
       "src\\MauiDevFlow.Agent\\MauiDevFlow.Agent.csproj",
+      "src\\MauiDevFlow.Blazor.Gtk\\MauiDevFlow.Blazor.Gtk.csproj",
       "src\\MauiDevFlow.Blazor\\MauiDevFlow.Blazor.csproj",
       "src\\MauiDevFlow.CLI\\MauiDevFlow.CLI.csproj",
       "src\\MauiDevFlow.Driver\\MauiDevFlow.Driver.csproj",

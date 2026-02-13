@@ -1,4 +1,4 @@
-namespace MauiDevFlow.Agent;
+namespace MauiDevFlow.Agent.Core;
 
 /// <summary>
 /// Configuration options for the MauiDevFlow Agent.

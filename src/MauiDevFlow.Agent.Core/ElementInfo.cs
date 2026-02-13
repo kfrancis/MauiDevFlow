@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace MauiDevFlow.Agent;
+namespace MauiDevFlow.Agent.Core;
 
 /// <summary>
 /// Represents a MAUI visual tree element with all inspectable properties.
@@ -24,6 +24,10 @@ public class ElementInfo
 
     [JsonPropertyName("text")]
     public string? Text { get; set; }
+
+    [JsonPropertyName("value")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Value { get; set; }
 
     [JsonPropertyName("isVisible")]
     public bool IsVisible { get; set; }

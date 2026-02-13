@@ -18,8 +18,8 @@ class Program
         // Global agent connection options (shared by MAUI and CDP commands)
         var agentPortOption = new Option<int>(
             ["--agent-port", "-ap"],
-            () => ReadConfigPort() ?? 9223,
-            "Agent HTTP port");
+            () => ResolveAgentPort(),
+            "Agent HTTP port (auto-discovered via broker, .mauidevflow, or default 9223)");
         var agentHostOption = new Option<string>(
             ["--agent-host", "-ah"],
             () => "localhost",
@@ -305,7 +305,34 @@ class Program
         };
         updateSkillCmd.SetHandler(async (force, output, branch) => await UpdateSkillAsync(force, output, branch), forceOption, outputDirOption, branchOption);
         rootCommand.Add(updateSkillCmd);
-        
+
+        // ===== broker commands =====
+        var brokerCommand = new Command("broker", "Manage the MauiDevFlow broker daemon");
+
+        var brokerForegroundOption = new Option<bool>("--foreground", "Run in foreground (don't detach)");
+        var brokerStartCmd = new Command("start", "Start the broker daemon") { brokerForegroundOption };
+        brokerStartCmd.SetHandler(async (foreground) => await BrokerStartAsync(foreground), brokerForegroundOption);
+        brokerCommand.Add(brokerStartCmd);
+
+        var brokerStopCmd = new Command("stop", "Stop the broker daemon");
+        brokerStopCmd.SetHandler(async () => await BrokerStopAsync());
+        brokerCommand.Add(brokerStopCmd);
+
+        var brokerStatusCmd = new Command("status", "Show broker daemon status");
+        brokerStatusCmd.SetHandler(async () => await BrokerStatusAsync());
+        brokerCommand.Add(brokerStatusCmd);
+
+        var brokerLogCmd = new Command("log", "Show broker log");
+        brokerLogCmd.SetHandler(() => BrokerLogAsync());
+        brokerCommand.Add(brokerLogCmd);
+
+        rootCommand.Add(brokerCommand);
+
+        // ===== list command (agent discovery) =====
+        var listCmd = new Command("list", "List all connected agents");
+        listCmd.SetHandler(async () => await ListAgentsCommandAsync());
+        rootCommand.Add(listCmd);
+
         return await rootCommand.InvokeAsync(args);
     }
     
@@ -1041,6 +1068,7 @@ class Program
         if (p.Contains("ios") || p.Contains("simulator")) return "ios-simulator";
         if (p.Contains("android")) return "android";
         if (p.Contains("windows") || p.Contains("win")) return "windows";
+        if (p.Contains("linux") || p.Contains("gtk")) return "linux";
 
         // Auto-detect from agent
         try
@@ -1054,11 +1082,13 @@ class Program
                 if (sp.Contains("android")) return "android";
                 if (sp.Contains("ios")) return "ios-simulator";
                 if (sp.Contains("windows")) return "windows";
+                if (sp.Contains("linux") || sp.Contains("gtk")) return "linux";
             }
         }
         catch { }
 
         if (OperatingSystem.IsWindows()) return "windows";
+        if (OperatingSystem.IsLinux()) return "linux";
         return "maccatalyst";
     }
 
@@ -1297,5 +1327,155 @@ class Program
         }
         catch { /* ignore parse failures */ }
         return null;
+    }
+
+    /// <summary>
+    /// Resolves the agent port: broker discovery → .mauidevflow config → default 9223.
+    /// </summary>
+    private static int ResolveAgentPort()
+    {
+        // Try broker discovery
+        try
+        {
+            var brokerPort = Broker.BrokerClient.ReadBrokerPortPublic() ?? Broker.BrokerServer.DefaultPort;
+
+            // Quick TCP check if broker is alive
+            using var tcp = new System.Net.Sockets.TcpClient();
+            tcp.ConnectAsync("localhost", brokerPort).Wait(TimeSpan.FromMilliseconds(300));
+            if (tcp.Connected)
+            {
+                // Find project in current directory
+                var csproj = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.csproj").FirstOrDefault();
+                if (csproj != null)
+                {
+                    var port = Broker.BrokerClient.ResolveAgentPortAsync(brokerPort, Path.GetFullPath(csproj)).GetAwaiter().GetResult();
+                    if (port.HasValue) return port.Value;
+                }
+
+                // Try auto-select (single agent)
+                var autoPort = Broker.BrokerClient.ResolveAgentPortAsync(brokerPort).GetAwaiter().GetResult();
+                if (autoPort.HasValue) return autoPort.Value;
+
+                // Multiple agents, can't disambiguate — show them so the caller
+                // (human or AI agent) can re-run with --agent-port
+                // Only show if we won't have a config file fallback
+                var configPort = ReadConfigPort();
+                if (configPort.HasValue) return configPort.Value;
+
+                var agents = Broker.BrokerClient.ListAgentsAsync(brokerPort).GetAwaiter().GetResult();
+                if (agents != null && agents.Length > 1)
+                {
+                    Console.Error.WriteLine("Multiple agents connected. Use --agent-port to specify which one:");
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine($"{"ID",-15}{"App",-20}{"Platform",-15}{"TFM",-25}{"Port",-7}");
+                    Console.Error.WriteLine(new string('-', 82));
+                    foreach (var a in agents)
+                        Console.Error.WriteLine($"{a.Id,-15}{a.AppName,-20}{a.Platform,-15}{a.Tfm,-25}{a.Port,-7}");
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine("Example: maui-devflow MAUI status --agent-port <port>");
+                }
+            }
+        }
+        catch { /* broker unavailable, fall through */ }
+
+        // Fall back to config file (already checked above if broker was alive)
+        return ReadConfigPort() ?? 9223;
+    }
+
+    // ===== Broker Commands =====
+
+    private static async Task BrokerStartAsync(bool foreground)
+    {
+        if (foreground)
+        {
+            Console.CancelKeyPress += (_, e) => e.Cancel = true;
+            using var cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, _) => cts.Cancel();
+
+            using var server = new Broker.BrokerServer(
+                log: msg => Console.WriteLine(msg));
+            await server.RunAsync(cts.Token);
+        }
+        else
+        {
+            var port = await Broker.BrokerClient.EnsureBrokerRunningAsync();
+            if (port.HasValue)
+                Console.WriteLine($"Broker running on port {port.Value}");
+            else
+                Console.WriteLine("Failed to start broker");
+        }
+    }
+
+    private static async Task BrokerStopAsync()
+    {
+        var success = await Broker.BrokerClient.ShutdownBrokerAsync();
+        Console.WriteLine(success ? "Broker shutdown requested" : "Broker is not running");
+    }
+
+    private static async Task BrokerStatusAsync()
+    {
+        var port = Broker.BrokerClient.ReadBrokerPortPublic();
+        if (port == null)
+        {
+            Console.WriteLine("Broker: not running (no state file)");
+            return;
+        }
+
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            var response = await http.GetStringAsync($"http://localhost:{port}/api/health");
+            var doc = JsonDocument.Parse(response);
+            var agents = doc.RootElement.GetProperty("agents").GetInt32();
+            Console.WriteLine($"Broker: running on port {port} ({agents} agent(s) connected)");
+        }
+        catch
+        {
+            Console.WriteLine($"Broker: not responding on port {port} (stale state file?)");
+        }
+    }
+
+    private static void BrokerLogAsync()
+    {
+        var logPath = Broker.BrokerPaths.LogFile;
+        if (!File.Exists(logPath))
+        {
+            Console.WriteLine("No broker log found");
+            return;
+        }
+
+        // Show last 50 lines
+        var lines = File.ReadAllLines(logPath);
+        var start = Math.Max(0, lines.Length - 50);
+        for (int i = start; i < lines.Length; i++)
+            Console.WriteLine(lines[i]);
+    }
+
+    private static async Task ListAgentsCommandAsync()
+    {
+        var port = await Broker.BrokerClient.EnsureBrokerRunningAsync();
+        if (port == null)
+        {
+            Console.WriteLine("Broker unavailable");
+            return;
+        }
+
+        var agents = await Broker.BrokerClient.ListAgentsAsync(port.Value);
+        if (agents == null || agents.Length == 0)
+        {
+            Console.WriteLine("No agents connected");
+            return;
+        }
+
+        Console.WriteLine($"{"ID",-14} {"App",-20} {"Platform",-14} {"TFM",-24} {"Port",-6} {"Uptime"}");
+        Console.WriteLine(new string('-', 90));
+        foreach (var a in agents)
+        {
+            var uptime = DateTime.UtcNow - a.ConnectedAt;
+            var uptimeStr = uptime.TotalHours >= 1
+                ? $"{uptime.Hours}h {uptime.Minutes}m"
+                : $"{uptime.Minutes}m {uptime.Seconds}s";
+            Console.WriteLine($"{a.Id,-14} {a.AppName,-20} {a.Platform,-14} {a.Tfm,-24} {a.Port,-6} {uptimeStr}");
+        }
     }
 }

@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 
-namespace MauiDevFlow.Agent;
+namespace MauiDevFlow.Agent.Core;
 
 /// <summary>
 /// Lightweight HTTP server using TcpListener (sandbox-friendly, no HttpListener).

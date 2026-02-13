@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+
+    <PackageId>Redth.MauiDevFlow.Agent.Gtk</PackageId>
+    <Description>GTK/Linux agent for MauiDevFlow. Provides visual tree inspection, element interactions, and screenshots for Maui.Gtk apps.</Description>
+    <PackageTags>maui;automation;testing;agent;gtk;linux</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MauiDevFlow.Agent.Core\MauiDevFlow.Agent.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageReference Include="GirCore.Gtk-4.0" Version="0.7.0" />
+  </ItemGroup>
+
+</Project>

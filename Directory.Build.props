@@ -3,6 +3,7 @@
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <MauiVersion>10.0.31</MauiVersion>
   </PropertyGroup>
 
   <!-- Common NuGet package metadata -->

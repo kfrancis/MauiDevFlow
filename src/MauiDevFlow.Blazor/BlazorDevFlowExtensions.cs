@@ -127,10 +127,20 @@ public static class BlazorDevFlowExtensions
                 }
 
                 // Try to get the agent service directly by its well-known type
-                var agentType = Type.GetType("MauiDevFlow.Agent.DevFlowAgentService, MauiDevFlow.Agent");
+                var agentType = Type.GetType("MauiDevFlow.Agent.Core.DevFlowAgentService, MauiDevFlow.Agent.Core");
                 if (agentType == null)
                 {
-                    // Try scanning loaded assemblies
+                    // Try scanning loaded assemblies for the Core type
+                    foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        agentType = asm.GetType("MauiDevFlow.Agent.Core.DevFlowAgentService");
+                        if (agentType != null) break;
+                    }
+                }
+
+                if (agentType == null)
+                {
+                    // Fallback: try legacy type name
                     foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
                     {
                         agentType = asm.GetType("MauiDevFlow.Agent.DevFlowAgentService");

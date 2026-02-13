@@ -6,9 +6,12 @@ Instructions for AI agents working on the MauiDevFlow codebase.
 
 MauiDevFlow is a toolkit for AI-assisted .NET MAUI app development. It provides:
 - **In-app Agent** (`MauiDevFlow.Agent`) — HTTP API running inside the MAUI app for visual tree inspection, element interaction, screenshots, and logging
+- **Agent Core** (`MauiDevFlow.Agent.Core`) — Platform-agnostic agent core (HTTP server, visual tree walker, logging) shared by platform-specific agents
+- **Agent GTK** (`MauiDevFlow.Agent.Gtk`) — GTK/Linux-specific agent for Maui.Gtk apps
 - **Blazor CDP Bridge** (`MauiDevFlow.Blazor`) — Chrome DevTools Protocol support via Chobitsu for Blazor Hybrid WebView debugging
+- **Blazor CDP GTK** (`MauiDevFlow.Blazor.Gtk`) — Blazor CDP bridge for WebKitGTK on Linux
 - **CLI Tool** (`MauiDevFlow.CLI`) — Terminal commands for both native MAUI and Blazor automation
-- **Driver Library** (`MauiDevFlow.Driver`) — Platform-aware orchestration (Mac Catalyst, Android, iOS, Windows)
+- **Driver Library** (`MauiDevFlow.Driver`) — Platform-aware orchestration (Mac Catalyst, Android, iOS, Windows, Linux)
 - **AI Skill** (`.claude/skills/maui-ai-debugging/`) — Skill files teaching AI agents the full build→deploy→inspect→fix workflow
 
 ## Architecture
@@ -17,6 +20,11 @@ MauiDevFlow is a toolkit for AI-assisted .NET MAUI app development. It provides:
 CLI (dotnet global tool) ──HTTP──▶ Agent (runs inside MAUI app, single port)
                                      ├── /api/tree, /api/screenshot, /api/logs, etc.
                                      └── /api/cdp ──EvalJS──▶ Chobitsu (in BlazorWebView)
+
+Agent architecture:
+  Agent.Core (net10.0) ← platform-agnostic HTTP server, tree walker, logging
+    ├── Agent (MAUI TFMs) ← iOS, Android, macCatalyst, Windows platform code
+    └── Agent.Gtk (net10.0) ← GTK/Linux platform code (GirCore.Gtk-4.0)
 ```
 
 - **Single port** (default 9223, configurable via `.mauidevflow` file) serves both native MAUI commands and CDP
@@ -30,6 +38,13 @@ CLI (dotnet global tool) ──HTTP──▶ Agent (runs inside MAUI app, single
 dotnet restore ci.slnf
 dotnet build ci.slnf
 dotnet test ci.slnf
+
+# Build GTK/Linux-specific projects only (no MAUI workloads needed)
+dotnet build src/MauiDevFlow.Agent.Core
+dotnet build src/MauiDevFlow.Agent.Gtk
+dotnet build src/MauiDevFlow.Blazor.Gtk
+dotnet build src/MauiDevFlow.Driver
+dotnet build src/MauiDevFlow.CLI
 
 # Build the sample app for Mac Catalyst
 dotnet build src/SampleMauiApp -f net10.0-maccatalyst
@@ -54,9 +69,12 @@ The solution filter `ci.slnf` excludes `SampleMauiApp` (requires MAUI workloads)
 
 ## NuGet Packaging
 
-Three packages are published on release:
-- `Redth.MauiDevFlow.Agent` — In-app agent (MAUI library)
+Six packages are published on release:
+- `Redth.MauiDevFlow.Agent` — In-app agent (MAUI library, references Agent.Core)
+- `Redth.MauiDevFlow.Agent.Core` — Platform-agnostic agent core (net10.0 library)
+- `Redth.MauiDevFlow.Agent.Gtk` — GTK/Linux agent (net10.0 library, references Agent.Core + GirCore)
 - `Redth.MauiDevFlow.Blazor` — Blazor CDP bridge (MAUI Razor library)
+- `Redth.MauiDevFlow.Blazor.Gtk` — Blazor CDP bridge for WebKitGTK (net10.0 library)
 - `Redth.MauiDevFlow.CLI` — Global dotnet tool
 
 The Driver library (`Redth.MauiDevFlow.Driver`) conditionally references `Interop.UIAutomationClient` on Windows for UIA-based dialog detection.
@@ -87,3 +105,12 @@ The CLI command `maui-devflow update-skill` downloads the latest skill files fro
 - **Driver**: `WindowsAppDriver` uses Windows UI Automation (UIA) via `Interop.UIAutomationClient` NuGet package for dialog detection, dismissal, and accessibility tree dumping. Key simulation uses `SendInput` P/Invoke.
 - **CLI**: `--platform windows` (or auto-detected via `OperatingSystem.IsWindows()`). PID resolution uses `Process.GetProcessesByName()` instead of `pgrep`.
 - **WinUI3 dialogs**: MAUI `DisplayAlert()` renders as child `window` elements inside the main app window. Detection strategy: find child windows containing both buttons and text elements.
+
+## Linux/GTK Support
+
+- **Agent.Core** (`MauiDevFlow.Agent.Core`): Platform-agnostic `net10.0` library containing HTTP server, visual tree walker base, logging, DTOs. Shared by both `Agent` (MAUI TFMs) and `Agent.Gtk` (GTK/Linux).
+- **Agent.Gtk** (`MauiDevFlow.Agent.Gtk`): GTK-specific agent using `GirCore.Gtk-4.0`. Native tap via `Gtk.Button.Activate()` / `Gtk.Widget.Activate()`. Native info collects GTK widget name, tooltip, sensitive, visible, type. Screenshots use `Gtk.WidgetPaintable` → `Gdk.Texture.SaveToPng()` fallback.
+- **Blazor CDP GTK** (`MauiDevFlow.Blazor.Gtk`): WebKitGTK-based CDP bridge using `GirCore.WebKit-6.0`. JS evaluation via `WebView.EvaluateJavascriptAsync()`. Same Chobitsu injection and CDP polling pattern as other platforms.
+- **Driver**: `LinuxAppDriver` extends `AppDriverBase`. Direct localhost connection (no port forwarding). Dialog detection via agent tree inspection. Key simulation via `xdotool`. Process management via `pgrep`.
+- **CLI**: `--platform linux` (or auto-detected via `OperatingSystem.IsLinux()`).
+- **Integration with Maui.Gtk**: In MauiProgram.cs: `builder.AddMauiDevFlowAgent()`. After app startup: `app.StartDevFlowAgent()`. For Blazor: `builder.AddMauiBlazorDevFlowTools()`.

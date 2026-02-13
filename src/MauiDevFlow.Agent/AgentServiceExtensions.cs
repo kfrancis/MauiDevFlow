@@ -3,6 +3,7 @@ using Microsoft.Maui.Controls;
 using Microsoft.Maui.Dispatching;
 using Microsoft.Maui.Hosting;
 using Microsoft.Maui.LifecycleEvents;
+using MauiDevFlow.Agent.Core;
 using MauiDevFlow.Logging;
 
 namespace MauiDevFlow.Agent;
@@ -21,16 +22,65 @@ public static class AgentServiceExtensions
         var options = new AgentOptions();
         configure?.Invoke(options);
 
-        // If port wasn't explicitly set in code, check AssemblyMetadata (from -p:MauiDevFlowPort=XXXX)
+        // Read project identity from assembly metadata (injected by .targets)
+        var project = ReadAssemblyMetadataProject() ?? "unknown";
+        var tfm = ReadAssemblyMetadataTfm() ?? "unknown";
+
+        // Try broker for port assignment first (must run on thread pool to avoid deadlock
+        // with SynchronizationContext — AddMauiDevFlowAgent runs on the main thread)
+        BrokerRegistration? brokerReg = null;
         if (options.Port == AgentOptions.DefaultPort)
+        {
+            try
+            {
+                string platform;
+                string appName;
+                try
+                {
+                    platform = DeviceInfo.Platform.ToString();
+                    appName = AppInfo.Name ?? "unknown";
+                }
+                catch
+                {
+                    // MAUI not fully initialized yet during DI registration
+                    platform = OperatingSystem.IsAndroid() ? "Android"
+                        : OperatingSystem.IsIOS() ? "iOS"
+                        : OperatingSystem.IsMacCatalyst() ? "MacCatalyst"
+                        : OperatingSystem.IsWindows() ? "Windows"
+                        : "Unknown";
+                    appName = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "unknown";
+                }
+                brokerReg = new BrokerRegistration(project, tfm, platform, appName);
+                // Task.Run avoids deadlock: TryRegisterAsync uses await internally,
+                // and the main thread has a SynchronizationContext that would deadlock
+                // if we called .GetAwaiter().GetResult() directly.
+                var assignedPort = Task.Run(() => brokerReg.TryRegisterAsync(TimeSpan.FromSeconds(5))).GetAwaiter().GetResult();
+                if (assignedPort.HasValue)
+                {
+                    options.Port = assignedPort.Value;
+                    Console.WriteLine($"[MauiDevFlow] Broker assigned port {assignedPort.Value}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MauiDevFlow] Broker registration failed: {ex.Message}");
+                brokerReg?.Dispose();
+                brokerReg = null;
+            }
+        }
+
+        // Fall back to assembly metadata port if broker didn't assign one
+        if (brokerReg?.AssignedPort == null)
         {
             var metaPort = ReadAssemblyMetadataPort();
             if (metaPort.HasValue)
                 options.Port = metaPort.Value;
         }
 
-        var service = new DevFlowAgentService(options);
-        builder.Services.AddSingleton(service);
+        var service = new PlatformAgentService(options);
+        if (brokerReg != null)
+            service.SetBrokerRegistration(brokerReg);
+        builder.Services.AddSingleton<DevFlowAgentService>(service);
 
         if (options.EnableFileLogging)
         {
@@ -99,26 +149,53 @@ public static class AgentServiceExtensions
     }
 
     /// <summary>
-    /// Reads MauiDevFlowPort from AssemblyMetadataAttribute injected by the .targets file
-    /// when the app is built with -p:MauiDevFlowPort=XXXX.
+    /// Reads MauiDevFlow metadata from AssemblyMetadataAttributes injected by the .targets file.
     /// </summary>
-    private static int? ReadAssemblyMetadataPort()
+    private static string? ReadAssemblyMetadata(string key)
     {
         try
         {
-            var attrs = System.Reflection.Assembly.GetEntryAssembly()?
-                .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
-
-            if (attrs != null)
+            // Try entry assembly first (works on Mac Catalyst, Windows)
+            var entry = System.Reflection.Assembly.GetEntryAssembly();
+            if (entry != null)
             {
-                foreach (System.Reflection.AssemblyMetadataAttribute attr in attrs)
-                {
-                    if (attr.Key == "MauiDevFlowPort" && int.TryParse(attr.Value, out var port))
-                        return port;
-                }
+                var value = FindMetadataInAssembly(entry, key);
+                if (value != null) return value;
+            }
+
+            // GetEntryAssembly() returns null on Android/iOS — scan loaded assemblies
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (asm.IsDynamic) continue;
+                var value = FindMetadataInAssembly(asm, key);
+                if (value != null) return value;
             }
         }
         catch { /* ignore reflection failures */ }
+        return null;
+    }
+
+    private static int? ReadAssemblyMetadataPort()
+    {
+        var value = ReadAssemblyMetadata("MauiDevFlowPort");
+        return value != null && int.TryParse(value, out var port) ? port : null;
+    }
+
+    internal static string? ReadAssemblyMetadataProject() => ReadAssemblyMetadata("MauiDevFlowProject");
+    internal static string? ReadAssemblyMetadataTfm() => ReadAssemblyMetadata("MauiDevFlowTfm");
+
+    private static string? FindMetadataInAssembly(System.Reflection.Assembly assembly, string key)
+    {
+        try
+        {
+            var attrs = assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
+            foreach (System.Reflection.AssemblyMetadataAttribute attr in attrs)
+            {
+                if (attr.Key == key)
+                    return attr.Value;
+            }
+        }
+        catch { /* ignore per-assembly reflection failures */ }
         return null;
     }
 }

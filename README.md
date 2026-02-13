@@ -21,7 +21,7 @@ manually check the simulator.
 - **Blazor WebView Debugging** — CDP bridge using Chobitsu for JavaScript evaluation, DOM manipulation, page navigation
 - **Unified Logging** — Native `ILogger` and WebView `console.log/warn/error` unified into a single log stream with source filtering
 - **CLI Tool** (`maui-devflow`) — Scriptable commands for both native and Blazor automation
-- **Driver Library** — Platform-aware (Mac Catalyst, Android, iOS Simulator) orchestration
+- **Driver Library** — Platform-aware (Mac Catalyst, Android, iOS Simulator, Linux/GTK) orchestration
 - **AI Skill** — Claude Code skill (`.claude/skills/maui-ai-debugging`) for AI-driven development workflows
 
 ## Quick Start
@@ -57,6 +57,7 @@ will handle NuGet packages, code changes, Blazor script tags, and verification.
 ```xml
 <PackageReference Include="Redth.MauiDevFlow.Agent" Version="*" />
 <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="*" />  <!-- Blazor Hybrid only -->
+<!-- For Linux/GTK apps, use Agent.Gtk and Blazor.Gtk instead -->
 ```
 
 #### 2. Configure MauiProgram.cs
@@ -114,6 +115,7 @@ dotnet tool install --global appledev.tools     # apple (simulators, provisionin
 - **Mac Catalyst:** Add `com.apple.security.network.server` entitlement (see [setup guide](.claude/skills/maui-ai-debugging/references/setup.md#5-mac-catalyst-entitlements))
 - **Android Emulator:** Run `adb reverse tcp:9223 tcp:9223`
 - **iOS Simulator:** No extra setup needed
+- **Linux/GTK:** No extra setup needed (see [Linux guide](.claude/skills/maui-ai-debugging/references/linux.md))
 
 </details>
 
@@ -217,7 +219,10 @@ MauiDevFlow.sln
 └── maui-ai-debugging/          # AI skill for Claude Code
 src/
 ├── MauiDevFlow.Agent/          # In-app agent (NuGet library for MAUI apps)
+├── MauiDevFlow.Agent.Core/     # Platform-agnostic agent core (shared by Agent & Agent.Gtk)
+├── MauiDevFlow.Agent.Gtk/      # GTK/Linux agent (NuGet library for Maui.Gtk apps)
 ├── MauiDevFlow.Blazor/         # Blazor WebView CDP bridge (Chobitsu)
+├── MauiDevFlow.Blazor.Gtk/     # Blazor CDP bridge for WebKitGTK on Linux
 ├── MauiDevFlow.CLI/            # CLI tool (maui-devflow)
 ├── MauiDevFlow.Driver/         # Driver library (connects to Agent, platform tools)
 └── SampleMauiApp/              # Sample todo app (native + Blazor Hybrid via Shell)
@@ -246,6 +251,7 @@ Hybrid page, connected via Shell navigation (`//native` and `//blazor` routes). 
 | iOS Simulator | ✅ | ✅ | Shares host network |
 | Android Emulator | ✅ | 🔄 | `adb reverse tcp:9223 tcp:9223` |
 | Windows | 🔄 | 🔄 | Direct localhost |
+| Linux/GTK | ✅ | ✅ | Direct localhost |
 
 ### Companion Tools
 
@@ -263,7 +269,7 @@ This project includes a Claude Code skill (`.claude/skills/maui-ai-debugging`) t
 agents the complete build → deploy → inspect → fix feedback loop. The skill covers:
 
 - Installing and configuring all required tools
-- Building and deploying to iOS simulators, Android emulators, and Mac Catalyst
+- Building and deploying to iOS simulators, Android emulators, Mac Catalyst, and Linux/GTK
 - Using `maui-devflow` to inspect visual trees, interact with elements, and take screenshots
 - Using CDP to inspect and manipulate Blazor WebView content
 - Managing simulators/emulators with `apple`, `android`, `xcrun simctl`, and `adb`

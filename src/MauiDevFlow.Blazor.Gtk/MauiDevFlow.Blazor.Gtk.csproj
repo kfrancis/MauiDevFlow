@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+
+    <PackageId>Redth.MauiDevFlow.Blazor.Gtk</PackageId>
+    <Description>Blazor WebView CDP debugging for Maui.Gtk apps using WebKitGTK. Enables Chrome DevTools Protocol access for Blazor Hybrid content on Linux.</Description>
+    <PackageTags>maui;blazor;debugging;cdp;gtk;linux;webkit</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MauiDevFlow.Agent.Core\MauiDevFlow.Agent.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageReference Include="GirCore.Gtk-4.0" Version="0.7.0" />
+    <PackageReference Include="GirCore.WebKit-6.0" Version="0.7.0" />
+  </ItemGroup>
+
+  <!-- Embed JS scripts as resources -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\Scripts\*.js" />
+  </ItemGroup>
+
+</Project>

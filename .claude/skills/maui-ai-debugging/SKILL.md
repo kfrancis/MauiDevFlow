@@ -2,14 +2,15 @@
 name: maui-ai-debugging
 description: >
   End-to-end workflow for building, deploying, inspecting, and debugging .NET MAUI and MAUI Blazor Hybrid apps
-  as an AI agent. Use when: (1) Building or running a MAUI app on iOS simulator, Android emulator, or Mac Catalyst,
-  (2) Deploying a MAUI app to a device/emulator/simulator, (3) Inspecting or interacting with a running MAUI app's
-  UI (visual tree, element tapping, filling text, screenshots, property queries), (4) Debugging Blazor WebView
-  content inside a MAUI app via CDP, (5) Managing iOS simulators or Android emulators (create, boot, list, install),
-  (6) Setting up the MauiDevFlow agent and CLI in a MAUI project, (7) Completing a build-deploy-inspect-fix feedback
-  loop for MAUI app development, (8) Handling iOS permission dialogs, system alerts, and app-level alerts via
-  simctl privacy or accessibility tree detection. Covers: maui-devflow CLI, androidsdk.tool (android),
-  appledev.tools (apple), adb, xcrun simctl, and dotnet build/run for all MAUI target platforms.
+  as an AI agent. Use when: (1) Building or running a MAUI app on iOS simulator, Android emulator, Mac Catalyst,
+  or Linux/GTK, (2) Deploying a MAUI app to a device/emulator/simulator, (3) Inspecting or interacting with a
+  running MAUI app's UI (visual tree, element tapping, filling text, screenshots, property queries), (4) Debugging
+  Blazor WebView content inside a MAUI app via CDP, (5) Managing iOS simulators or Android emulators (create, boot,
+  list, install), (6) Setting up the MauiDevFlow agent and CLI in a MAUI project (including Linux/GTK apps),
+  (7) Completing a build-deploy-inspect-fix feedback loop for MAUI app development, (8) Handling iOS permission
+  dialogs, system alerts, and app-level alerts via simctl privacy or accessibility tree detection. Covers:
+  maui-devflow CLI, androidsdk.tool (android), appledev.tools (apple), adb, xcrun simctl, xdotool (Linux),
+  and dotnet build/run for all MAUI target platforms including Linux/GTK.
 ---
 
 # MAUI AI Debugging
@@ -92,11 +93,13 @@ Blazor script tag, Mac Catalyst entitlements, and Android port forwarding, see
 
 **Quick summary:**
 1. Add NuGet packages (`Redth.MauiDevFlow.Agent`, and `Redth.MauiDevFlow.Blazor` for Blazor Hybrid)
+   - For **Linux/GTK apps**, use `Redth.MauiDevFlow.Agent.Gtk` and `Redth.MauiDevFlow.Blazor.Gtk` instead
 2. Register in `MauiProgram.cs` inside `#if DEBUG`
 3. Create `.mauidevflow` with a random port (see below)
 4. For Blazor Hybrid: chobitsu.js is auto-injected (no manual script tag needed)
 5. For Mac Catalyst: ensure `network.server` entitlement
 6. For Android: run `adb reverse` for the configured port
+7. For Linux: no special network setup needed (direct localhost)
 
 **Port configuration:** If no `.mauidevflow` exists in the project directory, create one
 with a random port between 9223–9899 to avoid collisions with other projects:
@@ -132,6 +135,9 @@ adb devices                                                   # verify connected
 
 **Mac Catalyst:** No device setup needed — runs as desktop app.
 
+**Linux/GTK:** No device setup needed — runs as desktop app. Ensure `xdotool` is installed
+for key simulation: `sudo apt install xdotool`
+
 ### 2. Detect the TFM
 
 **IMPORTANT:** Before building, detect the correct Target Framework Moniker from the project.
@@ -160,6 +166,9 @@ dotnet build -f $TFM-android -t:Run
 
 # Mac Catalyst (run in background/async shell)
 dotnet build -f $TFM-maccatalyst -t:Run
+
+# Linux/GTK (run in background/async shell)
+dotnet run --project <path-to-gtk-project>
 ```
 
 Replace `$TFM` with the actual version detected in step 2 (e.g. `net9.0`, `net10.0`).
@@ -426,6 +435,7 @@ For detailed platform-specific setup, simulator/emulator management, and trouble
 - **Setup & Installation**: See [references/setup.md](references/setup.md)
 - **iOS / Mac Catalyst**: See [references/ios-and-mac.md](references/ios-and-mac.md)
 - **Android**: See [references/android.md](references/android.md)
+- **Linux / GTK**: See [references/linux.md](references/linux.md)
 
 ## Multi-Project / Custom Ports
 
@@ -466,6 +476,7 @@ If `maui-devflow MAUI status` fails with connection refused:
    Pick a different port in `.mauidevflow` and rebuild.
 4. **Android?** Did you run `adb reverse tcp:<port> tcp:<port>`? Re-run it after each deploy.
 5. **Mac Catalyst?** Check entitlements include `network.server` (see setup.md step 5).
+6. **Linux/GTK?** No special network setup needed — runs directly on localhost. Check if the app started successfully.
 
 ### Build Failures
 
@@ -528,7 +539,7 @@ so the code signature stays consistent across rebuilds.
 - **Shell navigation**: Use `maui-devflow MAUI navigate "//route"` for Shell-based apps.
   Routes are defined in AppShell.xaml via `Route` property on ShellContent elements.
 - For Blazor Hybrid, `cdp snapshot` is the most AI-friendly way to read page state.
-- Build times: Mac Catalyst ~5-10s, iOS ~30-60s, Android ~30-90s. Set appropriate timeouts.
+- Build times: Mac Catalyst ~5-10s, iOS ~30-60s, Android ~30-90s, Linux/GTK ~5-10s. Set appropriate timeouts.
 - After Android deploy, always run `adb reverse` for port forwarding (match the port in `.mauidevflow` or default 9223).
 - **Property inspection** is more reliable than screenshots for verifying exact runtime values
   (colors, sizes, visibility). Use `tree` → `property` workflow for systematic debugging.

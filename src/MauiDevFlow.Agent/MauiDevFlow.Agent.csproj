@@ -12,11 +12,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <ProjectReference Include="..\MauiDevFlow.Agent.Core\MauiDevFlow.Agent.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MauiDevFlow.Logging\MauiDevFlow.Logging.csproj" />
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
   </ItemGroup>
 
   <!-- Include .targets files in NuGet package for MSBuild port configuration -->
