@@ -74,20 +74,27 @@ Use the detected version (e.g. `net9.0`) in all build commands. The examples use
 
 ### 3. Build and Deploy
 
-**CRITICAL:** `-t:Run` keeps the process alive until the app exits. Run in background
-(async bash) — do NOT run synchronously and expect to execute further commands.
+**CRITICAL:** `dotnet build -t:Run` **blocks until the app exits**. You MUST launch it
+asynchronously and then poll for the app to be ready. Do NOT wait for the process to finish —
+it never will (until the app is closed).
+
+**Correct launch pattern:**
+1. Start `dotnet build -t:Run` in an **async/background shell** (e.g., `mode: "async"`)
+2. Read output from the async shell periodically to watch for build completion / app launch
+3. Poll `maui-devflow MAUI status` (or `maui-devflow list`) until the agent connects
+4. If the agent doesn't appear after ~60-90 seconds, check the async shell output for build errors
 
 ```bash
-# iOS Simulator (run in background/async shell)
+# iOS Simulator (run in async shell)
 dotnet build -f $TFM-ios -t:Run -p:_DeviceName=:v2:udid=<UDID>
 
-# Android Emulator (run in background/async shell)
+# Android Emulator (run in async shell)
 dotnet build -f $TFM-android -t:Run
 
-# Mac Catalyst (run in background/async shell)
+# Mac Catalyst (run in async shell)
 dotnet build -f $TFM-maccatalyst -t:Run
 
-# Linux/GTK (run in background/async shell)
+# Linux/GTK (run in async shell)
 dotnet run --project <path-to-gtk-project>
 ```
 
@@ -105,11 +112,16 @@ adb forward tcp:<port> tcp:<port> # Agent (required — lets CLI reach agent in 
 
 ### 4. Verify Connectivity
 
+After launching the app asynchronously, poll for the agent to connect:
+
 ```bash
 maui-devflow list                 # Show all registered agents (via broker)
 maui-devflow MAUI status          # Agent connection + CDP readiness
 maui-devflow cdp status           # CDP-specific connection check
 ```
+
+Poll `maui-devflow MAUI status` every few seconds until it succeeds. If it hasn't connected
+after ~60-90 seconds, read the async shell output to check for build/launch errors.
 
 The `list` command shows all agents registered with the broker, including their platform,
 TFM, and assigned port. Use this to find the port for `--agent-port` when multiple apps run.
@@ -172,8 +184,8 @@ errors. Add temporary `ILogger` calls for more detail, rebuild, reproduce, and f
 
 ### 7. Rebuild
 
-After editing source code, rebuild: `dotnet build -f $TFM-<platform> -t:Run ...`
-→ `maui-devflow MAUI status` → inspect. If the build fails, see
+After editing source code, rebuild: `dotnet build -f $TFM-<platform> -t:Run ...` (in async shell)
+→ poll `maui-devflow MAUI status` until connected → inspect. If the build fails, see
 [references/troubleshooting.md](references/troubleshooting.md).
 
 ## Command Reference
@@ -278,6 +290,14 @@ when run from the project directory.
 
 ## Tips
 
+- **Always use `maui-devflow MAUI screenshot` or `maui-devflow cdp Page captureScreenshot`** for
+  screenshots. These capture the app's UI in-process from the rendering layer — the app does NOT
+  need to be in the foreground or focused. Never use `osascript` to bring windows to the front
+  for screenshots; it's unnecessary and unreliable.
+- **Avoid `osascript` unless absolutely necessary.** The `maui-devflow` CLI provides commands for
+  nearly everything: screenshots, tapping, text input, navigation, and property inspection. Only
+  use `osascript` for OS-level operations that `maui-devflow` cannot do (e.g., toggling dark mode,
+  dismissing macOS crash-recovery dialogs).
 - Use `AutomationId` on important MAUI controls for stable element references.
 - The visual tree only reflects what's currently rendered. Off-screen items in CollectionView
   may not appear until scrolled into view.
