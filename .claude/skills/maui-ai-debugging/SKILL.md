@@ -3,14 +3,11 @@ name: maui-ai-debugging
 description: >
   End-to-end workflow for building, deploying, inspecting, and debugging .NET MAUI and MAUI Blazor Hybrid apps
   as an AI agent. Use when: (1) Building or running a MAUI app on iOS simulator, Android emulator, Mac Catalyst,
-  or Linux/GTK, (2) Deploying a MAUI app to a device/emulator/simulator, (3) Inspecting or interacting with a
-  running MAUI app's UI (visual tree, element tapping, filling text, screenshots, property queries), (4) Debugging
-  Blazor WebView content inside a MAUI app via CDP, (5) Managing iOS simulators or Android emulators (create, boot,
-  list, install), (6) Setting up the MauiDevFlow agent and CLI in a MAUI project (including Linux/GTK apps),
-  (7) Completing a build-deploy-inspect-fix feedback loop for MAUI app development, (8) Handling iOS permission
-  dialogs, system alerts, and app-level alerts via simctl privacy or accessibility tree detection,
-  (9) Managing multiple simultaneous MAUI apps via the broker daemon. Covers: maui-devflow CLI,
-  androidsdk.tool (android), appledev.tools (apple), adb, xcrun simctl, xdotool (Linux),
+  or Linux/GTK, (2) Inspecting or interacting with a running app's UI (visual tree, tapping, filling text,
+  screenshots, property queries), (3) Debugging Blazor WebView content via CDP, (4) Managing simulators or
+  emulators, (5) Setting up MauiDevFlow in a MAUI project, (6) Completing a build-deploy-inspect-fix feedback
+  loop, (7) Handling permission dialogs and system alerts, (8) Managing multiple simultaneous apps via the
+  broker daemon. Covers: maui-devflow CLI, androidsdk.tool, appledev.tools, adb, xcrun simctl, xdotool,
   and dotnet build/run for all MAUI target platforms including Linux/GTK.
 ---
 
