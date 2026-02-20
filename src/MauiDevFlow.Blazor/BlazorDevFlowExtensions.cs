@@ -95,6 +95,30 @@ public static class BlazorDevFlowExtensions
                 });
             });
         });
+#elif MACOS
+        var service = new BlazorWebViewDebugService();
+        if (options.EnableLogging)
+        {
+            service.LogCallback = (msg) => System.Diagnostics.Debug.WriteLine(msg);
+        }
+
+        builder.Services.AddSingleton(service);
+        builder.Services.AddSingleton<BlazorWebViewDebugServiceBase>(sp => sp.GetRequiredService<BlazorWebViewDebugService>());
+
+        service.ConfigureHandler();
+
+        builder.ConfigureLifecycleEvents(lifecycle =>
+        {
+            lifecycle.AddMacOS(macos =>
+            {
+                macos.DidFinishLaunching(_ =>
+                {
+                    service.Initialize();
+                    WireAgentCdp(service);
+                    System.Diagnostics.Debug.WriteLine("[MauiDevFlow] Blazor CDP initialized");
+                });
+            });
+        });
 #endif
 
         return builder;
