@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Hosting;
+using Microsoft.Maui.LifecycleEvents;
 using MauiDevFlow.Agent.Core;
 using MauiDevFlow.Logging;
 
@@ -13,7 +14,7 @@ public static class GtkAgentServiceExtensions
 {
     /// <summary>
     /// Adds the MauiDevFlow Agent to a Maui.Gtk app builder.
-    /// The agent will start automatically when the GTK application activates.
+    /// The agent will start automatically when the first GTK window is created.
     /// </summary>
     public static MauiAppBuilder AddMauiDevFlowAgent(this MauiAppBuilder builder, Action<AgentOptions>? configure = null)
     {
@@ -73,6 +74,33 @@ public static class GtkAgentServiceExtensions
             service.SetLogProvider(logProvider);
             builder.Logging.AddProvider(logProvider);
         }
+
+        // Auto-start agent when the first GTK window is created
+        bool started = false;
+        builder.ConfigureLifecycleEvents(lifecycle =>
+        {
+            lifecycle.AddGtk(gtk =>
+            {
+                gtk.OnWindowCreated(_ =>
+                {
+                    if (started) return;
+                    started = true;
+
+                    Task.Run(async () =>
+                    {
+                        // Wait for Application.Current to be available
+                        Application? app = null;
+                        for (int i = 0; i < 50 && app == null; i++)
+                        {
+                            await Task.Delay(200);
+                            app = Application.Current;
+                        }
+                        if (app != null)
+                            app.StartDevFlowAgent();
+                    });
+                });
+            });
+        });
 
         return builder;
     }

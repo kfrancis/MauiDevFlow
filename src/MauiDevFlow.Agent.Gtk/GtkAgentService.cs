@@ -13,6 +13,41 @@ public class GtkAgentService : DevFlowAgentService
 
     protected override VisualTreeWalker CreateTreeWalker() => new GtkVisualTreeWalker();
 
+    protected override string PlatformName => "Linux";
+    protected override string DeviceTypeName => "Virtual";
+    protected override string IdiomName => "Desktop";
+
+    protected override (double width, double height) GetNativeWindowSize(IWindow window)
+    {
+        try
+        {
+            if (window.Handler?.PlatformView is global::Gtk.Window gtkWindow)
+                return (gtkWindow.GetWidth(), gtkWindow.GetHeight());
+
+            // MAUI Window doesn't have a handler on GTK; find Gtk.Window via widget hierarchy
+            if (window is Microsoft.Maui.Controls.Window mauiWindow)
+            {
+                // Try Shell's current page first
+                if (mauiWindow.Page is Shell shell && shell.CurrentPage?.Handler?.PlatformView is global::Gtk.Widget cpWidget)
+                {
+                    var root = cpWidget.GetRoot();
+                    if (root is global::Gtk.Window rootWin)
+                        return (rootWin.GetWidth(), rootWin.GetHeight());
+                }
+
+                // Try page directly
+                if (mauiWindow.Page?.Handler?.PlatformView is global::Gtk.Widget pageWidget)
+                {
+                    var root = pageWidget.GetRoot();
+                    if (root is global::Gtk.Window rootWin)
+                        return (rootWin.GetWidth(), rootWin.GetHeight());
+                }
+            }
+        }
+        catch { }
+        return base.GetNativeWindowSize(window);
+    }
+
     protected override bool TryNativeTap(VisualElement ve)
     {
         try
