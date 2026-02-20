@@ -260,6 +260,48 @@ The CLI auto-starts the broker on first use — no manual setup needed.
 | `broker stop` | Stop broker daemon |
 | `broker log` | Show broker log file |
 
+### maui-devflow batch (Multi-Command Execution)
+
+Execute multiple MAUI/cdp commands in a single CLI invocation via stdin. Outputs JSONL
+responses (one JSON object per line) to stdout — ideal for AI agents and scripting.
+
+```bash
+# Pipe multiple commands (semicolons or newlines as separators)
+echo "MAUI fill textUsername user; MAUI fill textPassword pwd123; MAUI tap buttonLogin" | maui-devflow batch
+
+# Multi-line input
+printf "MAUI status\nMAUI tree\nMAUI screenshot --output screen.png" | maui-devflow batch
+
+# With options
+echo "MAUI status; MAUI tree" | maui-devflow batch --delay 500 --continue-on-error --agent-port 10224
+
+# Human-readable output instead of JSONL
+echo "MAUI status; MAUI tree" | maui-devflow batch --human
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--delay <ms>` | 250 | Delay between commands (lets UI settle) |
+| `--continue-on-error` | false | Continue after a command fails (default: stop) |
+| `--human` | false | Human-readable output instead of JSONL |
+
+**JSONL response format** (one per command, streamed as each completes):
+```json
+{"command":"MAUI fill textUsername user","exit_code":0,"output":"Filled: textUsername"}
+{"command":"MAUI tap buttonLogin","exit_code":1,"output":"Error: Element not found: buttonLogin"}
+```
+
+**Interactive streaming:** The batch command processes stdin line-by-line, so a caller can
+read each JSONL response before sending the next command. This enables reactive workflows
+where the AI agent inspects results and decides the next action.
+
+**Input rules:**
+- Lines starting with `#` are comments (skipped)
+- Empty lines are skipped
+- Semicolons separate multiple commands on one line
+- Quoted strings are preserved: `MAUI fill myEntry "hello world"`
+- Only `MAUI` and `cdp` commands are allowed (broker/list/etc. are rejected)
+
 **How port discovery works:** When you run any `MAUI` or `cdp` command, the CLI:
 1. Auto-starts the broker if not running
 2. Queries the broker for agents matching the current project (`.csproj` in cwd)
@@ -299,6 +341,9 @@ when run from the project directory.
 
 ## Tips
 
+- **Use `maui-devflow batch` for multi-step interactions** — instead of running N separate CLI
+  invocations, pipe multiple commands through batch mode. This resolves the agent port once,
+  adds automatic delays between commands, and returns structured JSONL responses.
 - **Always use `maui-devflow MAUI screenshot` or `maui-devflow cdp Page captureScreenshot`** for
   screenshots. These capture the app's UI in-process from the rendering layer — the app does NOT
   need to be in the foreground or focused. Never use `osascript` to bring windows to the front

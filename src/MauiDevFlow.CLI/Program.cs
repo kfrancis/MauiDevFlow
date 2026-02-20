@@ -1,4 +1,6 @@
 using System.CommandLine;
+using System.CommandLine.Builder;
+using System.CommandLine.Parsing;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -11,6 +13,9 @@ namespace MauiDevFlow.CLI;
 /// </summary>
 class Program
 {
+    private static Parser? _parser;
+    [ThreadStatic] private static bool _errorOccurred;
+
     static async Task<int> Main(string[] args)
     {
         var rootCommand = new RootCommand("MauiDevFlow CLI - automate MAUI apps via Agent API and Blazor WebViews via CDP");
@@ -352,7 +357,26 @@ class Program
         listCmd.SetHandler(async () => await ListAgentsCommandAsync());
         rootCommand.Add(listCmd);
 
-        return await rootCommand.InvokeAsync(args);
+        // ===== batch command (interactive stdin/stdout) =====
+        var batchDelayOption = new Option<int>("--delay", () => 250, "Delay in ms between commands");
+        var batchContinueOption = new Option<bool>("--continue-on-error", () => false, "Continue executing after a command fails");
+        var batchHumanOption = new Option<bool>("--human", () => false, "Human-readable output instead of JSONL");
+        var batchCommand = new Command("batch", "Execute commands from stdin with JSONL responses on stdout")
+        {
+            batchDelayOption, batchContinueOption, batchHumanOption
+        };
+        batchCommand.SetHandler(async (host, port, delay, continueOnError, human) =>
+            await BatchAsync(host, port, delay, continueOnError, human),
+            agentHostOption, agentPortOption, batchDelayOption, batchContinueOption, batchHumanOption);
+        rootCommand.Add(batchCommand);
+
+        _parser = new CommandLineBuilder(rootCommand)
+            .UseDefaults()
+            .Build();
+
+        _errorOccurred = false;
+        var result = await _parser.InvokeAsync(args);
+        return _errorOccurred ? 1 : result;
     }
     
     // ===== CDP Helper: Send command via HTTP POST /api/cdp =====
@@ -674,8 +698,13 @@ class Program
     
     private static void WriteError(string message)
     {
+        _errorOccurred = true;
         Console.Error.WriteLine($"Error: {message}");
-        Environment.Exit(1);
+    }
+    
+    private class CommandErrorException : Exception
+    {
+        public CommandErrorException(string message) : base(message) { }
     }
     
     private static string FormatJson(JsonElement element)
@@ -1554,5 +1583,166 @@ class Program
                 : $"{uptime.Minutes}m {uptime.Seconds}s";
             Console.WriteLine($"{a.Id,-14} {a.AppName,-20} {a.Platform,-14} {a.Tfm,-24} {a.Port,-6} {uptimeStr}");
         }
+    }
+
+    // ===== Batch command: interactive stdin/stdout with JSONL responses =====
+
+    private static async Task BatchAsync(string host, int port, int delayMs, bool continueOnError, bool human)
+    {
+        var commandIndex = 0;
+        var succeeded = 0;
+        var failed = 0;
+        var originalOut = Console.Out;
+        var originalErr = Console.Error;
+
+        using var stdin = Console.In;
+        string? line;
+        while ((line = stdin.ReadLine()) != null)
+        {
+            var commands = SplitBatchLine(line);
+            foreach (var rawCmd in commands)
+            {
+                commandIndex++;
+                var args = TokenizeCommand(rawCmd);
+                if (args.Length == 0) continue;
+
+                var prefix = args[0].ToUpperInvariant();
+                if (prefix != "MAUI" && prefix != "CDP")
+                {
+                    var errMsg = $"Only MAUI and cdp commands are supported in batch mode, got: {args[0]}";
+                    if (human)
+                    {
+                        originalOut.WriteLine($"[{commandIndex}] {rawCmd}");
+                        originalErr.WriteLine($"Error: {errMsg}");
+                    }
+                    else
+                    {
+                        var errJson = JsonSerializer.Serialize(new { command = rawCmd, exit_code = 1, output = $"Error: {errMsg}" });
+                        originalOut.WriteLine(errJson);
+                        originalOut.Flush();
+                    }
+                    failed++;
+                    if (!continueOnError) goto done;
+                    continue;
+                }
+
+                // Inject resolved port/host so sub-commands don't re-query broker
+                var fullArgs = new List<string>(args) { "--agent-port", port.ToString(), "--agent-host", host };
+
+                // Capture stdout/stderr from the sub-command
+                var outCapture = new StringWriter();
+                var errCapture = new StringWriter();
+                Console.SetOut(outCapture);
+                Console.SetError(errCapture);
+
+                _errorOccurred = false;
+                int exitCode;
+                try
+                {
+                    exitCode = await _parser!.InvokeAsync(fullArgs.ToArray());
+                }
+                finally
+                {
+                    Console.SetOut(originalOut);
+                    Console.SetError(originalErr);
+                }
+                if (_errorOccurred) exitCode = 1;
+
+                var output = outCapture.ToString().TrimEnd('\r', '\n');
+                var errOutput = errCapture.ToString().TrimEnd('\r', '\n');
+                var combinedOutput = string.IsNullOrEmpty(errOutput) ? output : $"{output}\n{errOutput}".TrimStart('\n');
+
+                if (exitCode == 0) succeeded++;
+                else failed++;
+
+                if (human)
+                {
+                    originalOut.WriteLine($"[{commandIndex}] {rawCmd}");
+                    if (!string.IsNullOrEmpty(combinedOutput))
+                        originalOut.WriteLine(combinedOutput);
+                }
+                else
+                {
+                    var jsonResponse = JsonSerializer.Serialize(new { command = rawCmd, exit_code = exitCode, output = combinedOutput });
+                    originalOut.WriteLine(jsonResponse);
+                    originalOut.Flush();
+                }
+
+                if (exitCode != 0 && !continueOnError) goto done;
+
+                if (delayMs > 0)
+                    await Task.Delay(delayMs);
+            }
+        }
+
+    done:
+        if (human)
+        {
+            originalOut.WriteLine();
+            if (failed == 0)
+                originalOut.WriteLine($"Batch complete: {succeeded}/{succeeded + failed} commands succeeded");
+            else
+                originalOut.WriteLine($"Batch stopped: {succeeded}/{succeeded + failed} commands succeeded, {failed} failed");
+        }
+    }
+
+    private static List<string> SplitBatchLine(string line)
+    {
+        var commands = new List<string>();
+        var inQuote = false;
+        var current = new StringBuilder();
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            var c = line[i];
+            if (c == '"') { inQuote = !inQuote; current.Append(c); }
+            else if (c == ';' && !inQuote)
+            {
+                var cmd = current.ToString().Trim();
+                if (cmd.Length > 0 && !cmd.StartsWith('#'))
+                    commands.Add(cmd);
+                current.Clear();
+            }
+            else { current.Append(c); }
+        }
+
+        var last = current.ToString().Trim();
+        if (last.Length > 0 && !last.StartsWith('#'))
+            commands.Add(last);
+
+        return commands;
+    }
+
+    private static string[] TokenizeCommand(string command)
+    {
+        var tokens = new List<string>();
+        var current = new StringBuilder();
+        var inQuote = false;
+
+        for (int i = 0; i < command.Length; i++)
+        {
+            var c = command[i];
+            if (c == '"')
+            {
+                inQuote = !inQuote;
+            }
+            else if (char.IsWhiteSpace(c) && !inQuote)
+            {
+                if (current.Length > 0)
+                {
+                    tokens.Add(current.ToString());
+                    current.Clear();
+                }
+            }
+            else
+            {
+                current.Append(c);
+            }
+        }
+
+        if (current.Length > 0)
+            tokens.Add(current.ToString());
+
+        return tokens.ToArray();
     }
 }
