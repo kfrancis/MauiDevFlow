@@ -26,7 +26,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MauiDevFlow.Agent.Gtk", "src\MauiDevFlow.Agent.Gtk\MauiDevFlow.Agent.Gtk.csproj", "{52CD5544-29EA-410D-A9E6-325DBBF73E35}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MauiDevFlow.Blazor.Gtk", "src\MauiDevFlow.Blazor.Gtk\MauiDevFlow.Blazor.Gtk.csproj", "{8A22CABA-3196-424A-9B46-97BFDCA91B3B}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MauiDevFlow.Logging", "src\MauiDevFlow.Logging\MauiDevFlow.Logging.csproj", "{30D3375F-A14C-4BC6-B6F2-142609CA9790}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SampleMauiApp.Linux", "src\SampleMauiApp.Linux\SampleMauiApp.Linux.csproj", "{9E510053-5ACD-4013-8620-5312B8862D72}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -170,6 +173,18 @@ Global
 		{30D3375F-A14C-4BC6-B6F2-142609CA9790}.Release|x64.Build.0 = Release|Any CPU
 		{30D3375F-A14C-4BC6-B6F2-142609CA9790}.Release|x86.ActiveCfg = Release|Any CPU
 		{30D3375F-A14C-4BC6-B6F2-142609CA9790}.Release|x86.Build.0 = Release|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Debug|x64.Build.0 = Debug|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Debug|x86.Build.0 = Debug|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Release|x64.ActiveCfg = Release|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Release|x64.Build.0 = Release|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Release|x86.ActiveCfg = Release|Any CPU
+		{9E510053-5ACD-4013-8620-5312B8862D72}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -186,5 +201,6 @@ Global
 		{52CD5544-29EA-410D-A9E6-325DBBF73E35} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{8A22CABA-3196-424A-9B46-97BFDCA91B3B} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{30D3375F-A14C-4BC6-B6F2-142609CA9790} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{9E510053-5ACD-4013-8620-5312B8862D72} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

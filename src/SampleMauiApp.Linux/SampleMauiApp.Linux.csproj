@@ -1,0 +1,77 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SampleMauiApp</RootNamespace>
+    <ApplicationTitle>MauiTodo</ApplicationTitle>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Platform.Maui.Linux.Gtk4" Version="0.2.3" />
+    <PackageReference Include="Platform.Maui.Linux.Gtk4.BlazorWebView" Version="0.2.3" />
+    <PackageReference Include="Platform.Maui.Linux.Gtk4.Essentials" Version="0.2.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MauiDevFlow.Agent.Gtk\MauiDevFlow.Agent.Gtk.csproj" />
+    <ProjectReference Include="..\MauiDevFlow.Blazor.Gtk\MauiDevFlow.Blazor.Gtk.csproj" />
+  </ItemGroup>
+
+  <!-- Link shared source files from SampleMauiApp (excluding MauiProgram.cs and Platforms/) -->
+  <ItemGroup>
+    <Compile Include="..\SampleMauiApp\App.xaml.cs" Link="App.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\AppShell.xaml.cs" Link="AppShell.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\MainPage.xaml.cs" Link="MainPage.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\BlazorTodoPage.xaml.cs" Link="BlazorTodoPage.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\DialogTestPage.xaml.cs" Link="DialogTestPage.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\InteractionTestPage.xaml.cs" Link="InteractionTestPage.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\TodoService.cs" Link="TodoService.cs" />
+    <Compile Include="..\SampleMauiApp\TodoItem.cs" Link="TodoItem.cs" />
+    <Compile Include="..\SampleMauiApp\DebugFileLogger.cs" Link="DebugFileLogger.cs" />
+  </ItemGroup>
+
+  <!-- Link XAML files -->
+  <ItemGroup>
+    <MauiXaml Include="..\SampleMauiApp\App.xaml" Link="App.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\AppShell.xaml" Link="AppShell.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\MainPage.xaml" Link="MainPage.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\BlazorTodoPage.xaml" Link="BlazorTodoPage.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\DialogTestPage.xaml" Link="DialogTestPage.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\InteractionTestPage.xaml" Link="InteractionTestPage.xaml" />
+  </ItemGroup>
+
+  <!-- Resources are symlinked from SampleMauiApp -->
+  <ItemGroup>
+    <MauiImage Include="Resources\Images\*" />
+    <MauiImage Update="Resources\Images\dotnet_bot.svg" BaseSize="168,208" />
+    <MauiFont Include="Resources\Fonts\*" />
+    <MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- Copy wwwroot to output for Blazor WebView content resolution -->
+  <ItemGroup>
+    <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Copy blazor.webview.js from NuGet static web assets to output/_framework/ -->
+  <Target Name="_CopyBlazorFrameworkFiles" AfterTargets="Build">
+    <ItemGroup>
+      <_BlazorWebViewJsCandidates Include="$(NuGetPackageRoot)microsoft.aspnetcore.components.webview/*/staticwebassets/blazor.webview.js" />
+    </ItemGroup>
+    <MakeDir Directories="$(OutputPath)wwwroot/_framework" Condition="@(_BlazorWebViewJsCandidates->Count()) &gt; 0" />
+    <Copy SourceFiles="%(_BlazorWebViewJsCandidates.Identity)"
+          DestinationFiles="$(OutputPath)wwwroot/_framework/blazor.webview.js"
+          SkipUnchangedFiles="true"
+          Condition="@(_BlazorWebViewJsCandidates->Count()) &gt; 0" />
+    <!-- Blazor.start() fetches blazor.modules.json; provide an empty array if none exists -->
+    <WriteLinesToFile File="$(OutputPath)wwwroot/_framework/blazor.modules.json"
+                     Lines="[]"
+                     Overwrite="true"
+                     Condition="!Exists('$(OutputPath)wwwroot/_framework/blazor.modules.json')" />
+  </Target>
+
+</Project>

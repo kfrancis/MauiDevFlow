@@ -40,10 +40,12 @@ public class GtkBlazorWebViewDebugService : IDisposable
 
                 try
                 {
-                    var app = Microsoft.Maui.Controls.Application.Current;
-                    if (app == null) continue;
+                    var webView = await DispatchOnUiAsync(() =>
+                    {
+                        var app = Microsoft.Maui.Controls.Application.Current;
+                        return app == null ? null : FindWebKitWebView(app);
+                    });
 
-                    var webView = FindWebKitWebView(app);
                     if (webView != null)
                     {
                         Log("[BlazorDevFlow.Gtk] WebKit.WebView discovered from visual tree");
@@ -147,12 +149,17 @@ public class GtkBlazorWebViewDebugService : IDisposable
 
         try
         {
-            var result = await _webView.EvaluateJavascriptAsync(script);
-            return result?.ToString();
+            var result = await DispatchOnUiAsync(async () =>
+            {
+                if (_webView == null) return null;
+                var value = await _webView.EvaluateJavascriptAsync(script);
+                return value?.ToString();
+            });
+            return result;
         }
         catch (Exception ex)
         {
-            Log($"[BlazorDevFlow.Gtk] JS eval error: {ex.Message}");
+            Log($"[BlazorDevFlow.Gtk] JS eval error: {ex}");
             return null;
         }
     }
@@ -169,6 +176,46 @@ public class GtkBlazorWebViewDebugService : IDisposable
                 Log("[BlazorDevFlow.Gtk] WebView is null");
                 return;
             }
+
+            // WebKitGTK can throw SecurityError for storage/cookie access in hybrid contexts.
+            // Install safe shims so chobitsu initialization doesn't hard-fail.
+            var securityShim = @"
+                (function () {
+                    function installStorageShim(name) {
+                        try { void window[name]; }
+                        catch (_) {
+                            try {
+                                Object.defineProperty(window, name, {
+                                    configurable: true,
+                                    get: function () {
+                                        return {
+                                            getItem: function () { return null; },
+                                            setItem: function () {},
+                                            removeItem: function () {},
+                                            clear: function () {}
+                                        };
+                                    }
+                                });
+                            } catch (_) {}
+                        }
+                    }
+
+                    installStorageShim('localStorage');
+                    installStorageShim('sessionStorage');
+
+                    try { void document.cookie; }
+                    catch (_) {
+                        try {
+                            Object.defineProperty(Document.prototype, 'cookie', {
+                                configurable: true,
+                                get: function () { return ''; },
+                                set: function () {}
+                            });
+                        } catch (_) {}
+                    }
+                })();
+            ";
+            await EvaluateJavaScriptAsync(securityShim);
 
             // Check if chobitsu is already loaded
             var check = await EvaluateJavaScriptAsync(
@@ -300,7 +347,7 @@ public class GtkBlazorWebViewDebugService : IDisposable
 
     private async Task<string> HandlePageReloadAsync(int id)
     {
-        _webView?.Reload();
+        await DispatchOnUiAsync(() => _webView?.Reload());
         await Task.Delay(1500);
         await InjectDebugScriptAsync();
         return $"{{\"id\":{id},\"result\":{{}}}}";
@@ -310,7 +357,7 @@ public class GtkBlazorWebViewDebugService : IDisposable
     {
         var json = System.Text.Json.JsonDocument.Parse(cdpJson);
         var url = json.RootElement.GetProperty("params").GetProperty("url").GetString() ?? "";
-        _webView?.LoadUri(url);
+        await DispatchOnUiAsync(() => _webView?.LoadUri(url));
         await Task.Delay(1500);
         await InjectDebugScriptAsync();
         return $"{{\"id\":{id},\"result\":{{\"frameId\":\"main\"}}}}";
@@ -383,6 +430,73 @@ public class GtkBlazorWebViewDebugService : IDisposable
                 catch { }
             }
         }, ct);
+    }
+
+    private static Task<T?> DispatchOnUiAsync<T>(Func<T?> func)
+    {
+        var dispatcher = Microsoft.Maui.Controls.Application.Current?.Dispatcher;
+        if (dispatcher == null || !dispatcher.IsDispatchRequired)
+            return Task.FromResult(func());
+
+        var tcs = new TaskCompletionSource<T?>();
+        dispatcher.Dispatch(() =>
+        {
+            try
+            {
+                tcs.TrySetResult(func());
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        });
+        return tcs.Task;
+    }
+
+    private static Task<T?> DispatchOnUiAsync<T>(Func<Task<T?>> func)
+    {
+        var dispatcher = Microsoft.Maui.Controls.Application.Current?.Dispatcher;
+        if (dispatcher == null || !dispatcher.IsDispatchRequired)
+            return func();
+
+        var tcs = new TaskCompletionSource<T?>();
+        dispatcher.Dispatch(async () =>
+        {
+            try
+            {
+                tcs.TrySetResult(await func());
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        });
+        return tcs.Task;
+    }
+
+    private static Task DispatchOnUiAsync(Action action)
+    {
+        var dispatcher = Microsoft.Maui.Controls.Application.Current?.Dispatcher;
+        if (dispatcher == null || !dispatcher.IsDispatchRequired)
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        var tcs = new TaskCompletionSource();
+        dispatcher.Dispatch(() =>
+        {
+            try
+            {
+                action();
+                tcs.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        });
+        return tcs.Task;
     }
 
     public void Dispose()

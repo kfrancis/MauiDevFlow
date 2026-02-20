@@ -94,6 +94,16 @@ public class VisualTreeWalker
                 info.Children.Add(childInfo);
         }
 
+        // ShellContent-specific: ensure content page is included even if
+        // GetVisualChildren() doesn't expose it (common on GTK/Linux after navigation).
+        if (element is ShellContent sc && sc.Content is IVisualTreeElement scPage
+            && !children.Contains(scPage))
+        {
+            var pageInfo = WalkElement(scPage, id, currentDepth + 1, maxDepth);
+            if (pageInfo != null)
+                info.Children.Add(pageInfo);
+        }
+
         // Add ToolbarItems as synthetic children of Pages
         if (element is Page page && page.ToolbarItems.Count > 0)
         {
@@ -130,8 +140,16 @@ public class VisualTreeWalker
 
         MatchAndAdd(info, type, automationId, text, results);
 
-        foreach (var child in element.GetVisualChildren())
+        var children = element.GetVisualChildren();
+        foreach (var child in children)
             QueryRecursive(child, type, automationId, text, id, results);
+
+        // ShellContent-specific: include content page if not already traversed
+        if (element is ShellContent sc && sc.Content is IVisualTreeElement scPage
+            && !children.Contains(scPage))
+        {
+            QueryRecursive(scPage, type, automationId, text, id, results);
+        }
 
         // Also query ToolbarItems on Pages
         if (element is Page page)

@@ -49,6 +49,18 @@ public class DevFlowAgentService : IDisposable
     /// </summary>
     protected virtual VisualTreeWalker CreateTreeWalker() => new VisualTreeWalker();
 
+    /// <summary>Platform name for status reporting. Override for platforms without DeviceInfo.</summary>
+    protected virtual string PlatformName => DeviceInfo.Current.Platform.ToString();
+
+    /// <summary>Device type for status reporting. Override for platforms without DeviceInfo.</summary>
+    protected virtual string DeviceTypeName => DeviceInfo.Current.DeviceType.ToString();
+
+    /// <summary>Device idiom for status reporting. Override for platforms without DeviceInfo.</summary>
+    protected virtual string IdiomName => DeviceInfo.Current.Idiom.ToString();
+
+    /// <summary>Gets native window dimensions when MAUI reports 0. Override for platform-specific access.</summary>
+    protected virtual (double width, double height) GetNativeWindowSize(IWindow window) => (0, 0);
+
     /// <summary>
     /// Sets the file log provider for serving logs via the API.
     /// Called by AgentServiceExtensions during registration.
@@ -122,24 +134,38 @@ public class DevFlowAgentService : IDisposable
         _server.MapPost("/api/cdp", HandleCdp);
     }
 
-    private Task<HttpResponse> HandleStatus(HttpRequest request)
+    private async Task<HttpResponse> HandleStatus(HttpRequest request)
     {
-        var window = _app?.Windows.FirstOrDefault();
-        var w = window?.Width ?? 0;
-        var h = window?.Height ?? 0;
-        return Task.FromResult(HttpResponse.Json(new
+        var result = await DispatchAsync(() =>
         {
-            agent = "MauiDevFlow.Agent",
-            version = "1.0.0",
-            platform = DeviceInfo.Current.Platform.ToString(),
-            deviceType = DeviceInfo.Current.DeviceType.ToString(),
-            idiom = DeviceInfo.Current.Idiom.ToString(),
-            appName = _app?.GetType().Assembly.GetName().Name ?? "unknown",
-            running = _app != null,
-            cdpReady = CdpReadyCheck?.Invoke() ?? false,
-            windowWidth = double.IsFinite(w) ? w : 0,
-            windowHeight = double.IsFinite(h) ? h : 0
-        }));
+            var window = _app?.Windows.FirstOrDefault();
+            var w = window?.Width ?? 0;
+            var h = window?.Height ?? 0;
+
+            // Try getting window size from native platform view if MAUI reports invalid values
+            if (window != null && (!double.IsFinite(w) || !double.IsFinite(h) || w <= 0 || h <= 0))
+            {
+                var (nw, nh) = GetNativeWindowSize(window);
+                if (nw > 0) w = nw;
+                if (nh > 0) h = nh;
+            }
+
+            return new
+            {
+                agent = "MauiDevFlow.Agent",
+                version = "1.0.0",
+                platform = PlatformName,
+                deviceType = DeviceTypeName,
+                idiom = IdiomName,
+                appName = _app?.GetType().Assembly.GetName().Name ?? "unknown",
+                running = _app != null,
+                cdpReady = CdpReadyCheck?.Invoke() ?? false,
+                windowWidth = double.IsFinite(w) ? w : 0,
+                windowHeight = double.IsFinite(h) ? h : 0
+            };
+        });
+
+        return HttpResponse.Json(result!);
     }
 
     private async Task<HttpResponse> HandleTree(HttpRequest request)
@@ -385,10 +411,12 @@ public class DevFlowAgentService : IDisposable
             switch (el)
             {
                 case Button btn:
-                    btn.SendClicked();
+                    try { btn.SendClicked(); }
+                    catch { if (btn is VisualElement ve && !TryNativeTap(ve)) return $"Native tap failed on Button"; }
                     return "ok";
                 case ImageButton imgBtn:
-                    imgBtn.SendClicked();
+                    try { imgBtn.SendClicked(); }
+                    catch { if (imgBtn is VisualElement ve && !TryNativeTap(ve)) return $"Native tap failed on ImageButton"; }
                     return "ok";
                 case CheckBox cb:
                     cb.IsChecked = !cb.IsChecked;

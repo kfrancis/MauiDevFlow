@@ -15,7 +15,7 @@ public partial class MainPage : ContentPage
 
     private void OnTodoServiceChanged()
     {
-        MainThread.BeginInvokeOnMainThread(UpdateCount);
+        Dispatcher.Dispatch(UpdateCount);
     }
 
     private void SetupTodoList()

@@ -10,6 +10,7 @@
       "src\\MauiDevFlow.CLI\\MauiDevFlow.CLI.csproj",
       "src\\MauiDevFlow.Driver\\MauiDevFlow.Driver.csproj",
       "src\\MauiDevFlow.Logging\\MauiDevFlow.Logging.csproj",
+      "src\\SampleMauiApp.Linux\\SampleMauiApp.Linux.csproj",
       "tests\\MauiDevFlow.Tests\\MauiDevFlow.Tests.csproj"
     ]
   }
