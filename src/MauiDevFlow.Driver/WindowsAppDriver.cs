@@ -50,6 +50,100 @@ public class WindowsAppDriver : AppDriverBase
 #endif
 
     // ──────────────────────────────────────────────
+    // Screen Recording via ffmpeg
+    // ──────────────────────────────────────────────
+
+    public override async Task StartRecordingAsync(string outputFile, int timeoutSeconds = 30)
+    {
+        EnsureNotRecording();
+        EnsureFfmpeg();
+
+        var fullPath = Path.GetFullPath(outputFile);
+        if (!fullPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+            fullPath = Path.ChangeExtension(fullPath, ".mp4");
+
+        var input = "desktop";
+        if (!string.IsNullOrEmpty(AppName))
+            input = $"title={AppName}";
+
+        var psi = new ProcessStartInfo("ffmpeg",
+            $"-f gdigrab -framerate 30 -t {timeoutSeconds} -i {input} -y \"{fullPath}\"")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        var process = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start ffmpeg");
+
+        await Task.Delay(500);
+
+        RecordingStateManager.Save(new RecordingState
+        {
+            RecordingPid = process.Id,
+            OutputFile = fullPath,
+            Platform = "windows",
+            StartedAt = DateTimeOffset.UtcNow,
+            TimeoutSeconds = timeoutSeconds
+        });
+    }
+
+    public override async Task<string> StopRecordingAsync()
+    {
+        var state = RecordingStateManager.Load()
+            ?? throw new InvalidOperationException("No active recording found.");
+
+        if (state.Platform != "windows")
+            throw new InvalidOperationException($"Active recording is on {state.Platform}, not Windows.");
+
+        // Send 'q' to ffmpeg's stdin for graceful stop
+        try
+        {
+            var proc = Process.GetProcessById(state.RecordingPid);
+            if (!proc.HasExited)
+            {
+                proc.StandardInput.Write("q");
+                proc.StandardInput.Flush();
+                await proc.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            }
+        }
+        catch
+        {
+            SendInterrupt(state.RecordingPid);
+        }
+
+        RecordingStateManager.Delete();
+        return state.OutputFile;
+    }
+
+    private static void EnsureFfmpeg()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("ffmpeg", "-version")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var proc = Process.Start(psi);
+            proc?.WaitForExit(5000);
+            if (proc?.ExitCode != 0)
+                throw new Exception();
+        }
+        catch
+        {
+            throw new InvalidOperationException(
+                "ffmpeg is required for screen recording on Windows but was not found on PATH. " +
+                "Install it from https://ffmpeg.org/download.html or via 'winget install ffmpeg'.");
+        }
+    }
+
+    // ──────────────────────────────────────────────
     // Dialog detection & dismissal via UIA
     // ──────────────────────────────────────────────
 

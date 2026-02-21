@@ -60,4 +60,17 @@ public interface IAppDriver : IDisposable
     /// Send a key press (platform-specific).
     /// </summary>
     Task PressKeyAsync(string key);
+
+    /// <summary>
+    /// Start screen recording. Returns immediately; recording runs in background.
+    /// </summary>
+    /// <param name="outputFile">Output file path for the recording.</param>
+    /// <param name="timeoutSeconds">Max recording duration (default 30s). Recording auto-stops after this.</param>
+    Task StartRecordingAsync(string outputFile, int timeoutSeconds = 30);
+
+    /// <summary>
+    /// Stop an active screen recording and finalize the output file.
+    /// </summary>
+    /// <returns>The path to the recorded video file.</returns>
+    Task<string> StopRecordingAsync();
 }

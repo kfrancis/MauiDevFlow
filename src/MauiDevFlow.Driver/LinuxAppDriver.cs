@@ -80,6 +80,96 @@ public class LinuxAppDriver : AppDriverBase
         return alert;
     }
 
+    // ──────────────────────────────────────────────
+    // Screen Recording via ffmpeg
+    // ──────────────────────────────────────────────
+
+    public override async Task StartRecordingAsync(string outputFile, int timeoutSeconds = 30)
+    {
+        EnsureNotRecording();
+        EnsureFfmpegLinux();
+
+        var fullPath = Path.GetFullPath(outputFile);
+        if (!fullPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+            fullPath = Path.ChangeExtension(fullPath, ".mp4");
+
+        var display = Environment.GetEnvironmentVariable("DISPLAY") ?? ":0";
+        var psi = new ProcessStartInfo("ffmpeg",
+            $"-f x11grab -framerate 30 -t {timeoutSeconds} -i {display} -y \"{fullPath}\"")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+
+        var process = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start ffmpeg");
+
+        await Task.Delay(500);
+
+        var watchdogPid = SpawnWatchdog(process.Id, timeoutSeconds);
+
+        RecordingStateManager.Save(new RecordingState
+        {
+            RecordingPid = process.Id,
+            WatchdogPid = watchdogPid,
+            OutputFile = fullPath,
+            Platform = "linux",
+            StartedAt = DateTimeOffset.UtcNow,
+            TimeoutSeconds = timeoutSeconds
+        });
+    }
+
+    public override async Task<string> StopRecordingAsync()
+    {
+        var state = RecordingStateManager.Load()
+            ?? throw new InvalidOperationException("No active recording found.");
+
+        if (state.Platform != "linux")
+            throw new InvalidOperationException($"Active recording is on {state.Platform}, not Linux.");
+
+        KillWatchdog(state.WatchdogPid);
+
+        // Send 'q' to ffmpeg's stdin for graceful stop
+        try
+        {
+            var proc = Process.GetProcessById(state.RecordingPid);
+            if (!proc.HasExited)
+            {
+                SendInterrupt(state.RecordingPid);
+                await proc.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            }
+        }
+        catch { }
+
+        RecordingStateManager.Delete();
+        return state.OutputFile;
+    }
+
+    private static void EnsureFfmpegLinux()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("ffmpeg", "-version")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+            using var proc = Process.Start(psi);
+            proc?.WaitForExit(5000);
+            if (proc?.ExitCode != 0)
+                throw new Exception();
+        }
+        catch
+        {
+            throw new InvalidOperationException(
+                "ffmpeg is required for screen recording on Linux but was not found on PATH. " +
+                "Install it via your package manager (e.g., 'apt install ffmpeg' or 'dnf install ffmpeg').");
+        }
+    }
+
     public override Task BackAsync()
     {
         // Linux GTK apps don't have a system back button

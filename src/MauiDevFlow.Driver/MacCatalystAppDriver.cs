@@ -128,6 +128,109 @@ public class MacCatalystAppDriver : AppDriverBase
     }
 
     // ──────────────────────────────────────────────
+    // Screen Recording via screencapture
+    // ──────────────────────────────────────────────
+
+    public override async Task StartRecordingAsync(string outputFile, int timeoutSeconds = 30)
+    {
+        EnsureNotRecording();
+        EnsureMacOS();
+
+        var fullPath = Path.GetFullPath(outputFile);
+        // Ensure .mov extension for screencapture
+        if (!fullPath.EndsWith(".mov", StringComparison.OrdinalIgnoreCase))
+            fullPath = Path.ChangeExtension(fullPath, ".mov");
+
+        // Try to capture just the app window using -l windowID
+        var args = $"-v \"{fullPath}\"";
+        var windowId = TryGetWindowId();
+        if (windowId.HasValue)
+            args = $"-v -l {windowId.Value} \"{fullPath}\"";
+
+        var psi = new ProcessStartInfo("screencapture", args)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+
+        var process = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start screencapture");
+
+        await Task.Delay(500);
+
+        var watchdogPid = SpawnWatchdog(process.Id, timeoutSeconds);
+
+        RecordingStateManager.Save(new RecordingState
+        {
+            RecordingPid = process.Id,
+            WatchdogPid = watchdogPid,
+            OutputFile = fullPath,
+            Platform = "maccatalyst",
+            StartedAt = DateTimeOffset.UtcNow,
+            TimeoutSeconds = timeoutSeconds
+        });
+    }
+
+    public override async Task<string> StopRecordingAsync()
+    {
+        var state = RecordingStateManager.Load()
+            ?? throw new InvalidOperationException("No active recording found.");
+
+        if (state.Platform != "maccatalyst")
+            throw new InvalidOperationException($"Active recording is on {state.Platform}, not Mac Catalyst.");
+
+        KillWatchdog(state.WatchdogPid);
+        SendInterrupt(state.RecordingPid);
+
+        try
+        {
+            var proc = Process.GetProcessById(state.RecordingPid);
+            await proc.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        catch { }
+
+        RecordingStateManager.Delete();
+        return state.OutputFile;
+    }
+
+    /// <summary>
+    /// Resolves the CGWindowID for the app's main window via the macOS window list.
+    /// Uses a small Python script to call CoreGraphics, avoiding native P/Invoke complexity.
+    /// Returns null if the window cannot be found.
+    /// </summary>
+    private int? TryGetWindowId()
+    {
+        try
+        {
+            var pid = ResolveProcessId();
+            var script = $"""
+                import Quartz
+                wl = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID)
+                for w in wl:
+                    if w.get('kCGWindowOwnerPID') == {pid} and w.get('kCGWindowLayer', 99) == 0:
+                        print(w['kCGWindowNumber'])
+                        break
+                """;
+            var psi = new ProcessStartInfo("python3", $"-c \"{script.Replace("\"", "\\\"")}\"")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+            using var proc = Process.Start(psi);
+            if (proc == null) return null;
+            var output = proc.StandardOutput.ReadToEnd().Trim();
+            proc.WaitForExit(5000);
+            return int.TryParse(output, out var wid) ? wid : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // ──────────────────────────────────────────────
     // Detection: returns AlertInfo only (for detect command)
     // ──────────────────────────────────────────────
 

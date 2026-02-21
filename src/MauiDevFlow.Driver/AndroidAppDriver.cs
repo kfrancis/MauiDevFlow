@@ -267,6 +267,81 @@ public class AndroidAppDriver : AppDriverBase
             .Replace('\u201C', '"').Replace('\u201D', '"');
 
     // ──────────────────────────────────────────────
+    // Screen Recording via adb screenrecord
+    // ──────────────────────────────────────────────
+
+    private const string DeviceRecordingPath = "/sdcard/mauidevflow_recording.mp4";
+    private const int AdbMaxTimeLimit = 180;
+
+    public override async Task StartRecordingAsync(string outputFile, int timeoutSeconds = 30)
+    {
+        EnsureNotRecording();
+
+        var effectiveTimeout = timeoutSeconds;
+        if (effectiveTimeout > AdbMaxTimeLimit)
+        {
+            Console.Error.WriteLine(
+                $"Warning: Android adb screenrecord max is {AdbMaxTimeLimit}s. Capping timeout from {effectiveTimeout}s.");
+            effectiveTimeout = AdbMaxTimeLimit;
+        }
+
+        var args = Serial is not null ? $"-s {Serial} " : "";
+        args += $"shell screenrecord --time-limit {effectiveTimeout} {DeviceRecordingPath}";
+
+        var psi = new ProcessStartInfo("adb", args)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        var process = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start adb screenrecord");
+
+        var watchdogPid = SpawnWatchdog(process.Id, effectiveTimeout);
+
+        RecordingStateManager.Save(new RecordingState
+        {
+            RecordingPid = process.Id,
+            WatchdogPid = watchdogPid,
+            OutputFile = Path.GetFullPath(outputFile),
+            Platform = "android",
+            DeviceOutputFile = DeviceRecordingPath,
+            Serial = Serial,
+            StartedAt = DateTimeOffset.UtcNow,
+            TimeoutSeconds = effectiveTimeout
+        });
+    }
+
+    public override async Task<string> StopRecordingAsync()
+    {
+        var state = RecordingStateManager.Load()
+            ?? throw new InvalidOperationException("No active recording found.");
+
+        if (state.Platform != "android")
+            throw new InvalidOperationException($"Active recording is on {state.Platform}, not Android.");
+
+        KillWatchdog(state.WatchdogPid);
+        SendInterrupt(state.RecordingPid);
+
+        // Wait for adb to finish writing
+        try
+        {
+            var proc = Process.GetProcessById(state.RecordingPid);
+            await proc.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        catch { }
+
+        // Pull the file from device
+        await RunAdbAsync($"pull {DeviceRecordingPath} \"{state.OutputFile}\"");
+        try { await RunAdbAsync($"shell rm {DeviceRecordingPath}"); } catch { }
+
+        RecordingStateManager.Delete();
+        return state.OutputFile;
+    }
+
+    // ──────────────────────────────────────────────
     // adb helpers
     // ──────────────────────────────────────────────
 

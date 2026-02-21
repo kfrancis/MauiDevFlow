@@ -138,6 +138,64 @@ public class iOSSimulatorAppDriver : AppDriverBase
         await RunProcessAsync("apple", $"simulator idb tap {DeviceUdid} {x} {y}").ConfigureAwait(false);
     }
 
+    // --- Screen Recording via xcrun simctl io recordVideo ---
+
+    public override async Task StartRecordingAsync(string outputFile, int timeoutSeconds = 30)
+    {
+        EnsureNotRecording();
+        EnsureDeviceUdid();
+
+        var fullPath = Path.GetFullPath(outputFile);
+        var psi = new ProcessStartInfo("xcrun",
+            $"simctl io {DeviceUdid} recordVideo --codec h264 \"{fullPath}\"")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+
+        var process = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start xcrun simctl io recordVideo");
+
+        // Give simctl a moment to initialize recording
+        await Task.Delay(500);
+
+        var watchdogPid = SpawnWatchdog(process.Id, timeoutSeconds);
+
+        RecordingStateManager.Save(new RecordingState
+        {
+            RecordingPid = process.Id,
+            WatchdogPid = watchdogPid,
+            OutputFile = fullPath,
+            Platform = "ios",
+            StartedAt = DateTimeOffset.UtcNow,
+            TimeoutSeconds = timeoutSeconds
+        });
+    }
+
+    public override async Task<string> StopRecordingAsync()
+    {
+        var state = RecordingStateManager.Load()
+            ?? throw new InvalidOperationException("No active recording found.");
+
+        if (state.Platform != "ios")
+            throw new InvalidOperationException($"Active recording is on {state.Platform}, not iOS.");
+
+        KillWatchdog(state.WatchdogPid);
+        SendInterrupt(state.RecordingPid);
+
+        // Wait for simctl to finalize the video file
+        try
+        {
+            var proc = Process.GetProcessById(state.RecordingPid);
+            await proc.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+        }
+        catch { }
+
+        RecordingStateManager.Delete();
+        return state.OutputFile;
+    }
+
     // --- Private helpers ---
 
     private void EnsureDeviceUdid()

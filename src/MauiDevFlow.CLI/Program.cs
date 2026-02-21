@@ -185,6 +185,29 @@ class Program
         mauiScreenshotCmd.SetHandler(async (host, port, output) => await MauiScreenshotAsync(host, port, output), agentHostOption, agentPortOption, screenshotOutputOption);
         mauiCommand.Add(mauiScreenshotCmd);
 
+        // MAUI recording subcommands
+        var recordingCommand = new Command("recording", "Screen recording (start/stop/status)");
+
+        var recordingOutputOption = new Option<string?>("--output", "Output file path");
+        var recordingTimeoutOption = new Option<int>("--timeout", () => 30, "Max recording duration in seconds");
+        var recordingStartCmd = new Command("start", "Start screen recording") { recordingOutputOption, recordingTimeoutOption };
+        recordingStartCmd.SetHandler(async (host, port, platform, output, timeout) =>
+            await RecordingStartAsync(host, port, platform, output, timeout),
+            agentHostOption, agentPortOption, platformOption, recordingOutputOption, recordingTimeoutOption);
+        recordingCommand.Add(recordingStartCmd);
+
+        var recordingStopCmd = new Command("stop", "Stop active recording");
+        recordingStopCmd.SetHandler(async (host, port, platform) =>
+            await RecordingStopAsync(host, port, platform),
+            agentHostOption, agentPortOption, platformOption);
+        recordingCommand.Add(recordingStopCmd);
+
+        var recordingStatusCmd = new Command("status", "Check if a recording is in progress");
+        recordingStatusCmd.SetHandler(() => RecordingStatusAsync());
+        recordingCommand.Add(recordingStatusCmd);
+
+        mauiCommand.Add(recordingCommand);
+
         // MAUI property
         var propIdArg = new Argument<string>("elementId", "Element ID");
         var propNameArg = new Argument<string>("propertyName", "Property name");
@@ -928,6 +951,48 @@ class Program
             Console.WriteLine($"Screenshot saved: {Path.GetFullPath(filename)} ({data.Length} bytes)");
         }
         catch (Exception ex) { WriteError(ex.Message); }
+    }
+
+    private static async Task RecordingStartAsync(string host, int port, string platform, string? output, int timeout)
+    {
+        try
+        {
+            var filename = output ?? $"recording_{DateTime.Now:yyyyMMdd_HHmmss}.mp4";
+            using var driver = MauiDevFlow.Driver.AppDriverFactory.Create(platform);
+            await driver.StartRecordingAsync(filename, timeout);
+            Console.WriteLine($"Recording started (timeout: {timeout}s)");
+            Console.WriteLine($"Output: {Path.GetFullPath(filename)}");
+        }
+        catch (Exception ex) { WriteError(ex.Message); }
+    }
+
+    private static async Task RecordingStopAsync(string host, int port, string platform)
+    {
+        try
+        {
+            using var driver = MauiDevFlow.Driver.AppDriverFactory.Create(platform);
+            var outputFile = await driver.StopRecordingAsync();
+            var size = File.Exists(outputFile) ? new FileInfo(outputFile).Length : 0;
+            Console.WriteLine($"Recording saved: {outputFile} ({size} bytes)");
+        }
+        catch (Exception ex) { WriteError(ex.Message); }
+    }
+
+    private static void RecordingStatusAsync()
+    {
+        var state = MauiDevFlow.Driver.RecordingStateManager.Load();
+        if (state == null || !MauiDevFlow.Driver.RecordingStateManager.IsRecording())
+        {
+            Console.WriteLine("No active recording.");
+            return;
+        }
+
+        var elapsed = DateTimeOffset.UtcNow - state.StartedAt;
+        Console.WriteLine($"Recording in progress:");
+        Console.WriteLine($"  Platform: {state.Platform}");
+        Console.WriteLine($"  Output:   {state.OutputFile}");
+        Console.WriteLine($"  Elapsed:  {elapsed.TotalSeconds:F0}s / {state.TimeoutSeconds}s");
+        Console.WriteLine($"  PID:      {state.RecordingPid}");
     }
 
     private static async Task MauiPropertyAsync(string host, int port, string elementId, string propertyName)

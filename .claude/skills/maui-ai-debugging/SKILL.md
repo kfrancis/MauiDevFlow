@@ -184,7 +184,34 @@ maui-devflow MAUI logs --source native   # only native ILogger logs
 **Debugging workflow:** Reproduce the issue → `maui-devflow MAUI logs --limit 20` → check for
 errors. Add temporary `ILogger` calls for more detail, rebuild, reproduce, and fetch logs again.
 
-### 7. Rebuild
+### 7. Screen Recording
+
+Capture video of the app while performing interactions. Recording is host-side (not in-app)
+using platform-native tools.
+
+```bash
+# Start recording (default 30s timeout)
+maui-devflow MAUI recording start --output demo.mp4
+
+# Interact with the app
+maui-devflow MAUI tap <buttonId>
+maui-devflow MAUI navigate "//blazor"
+maui-devflow MAUI fill <entryId> "Hello World"
+
+# Stop and save
+maui-devflow MAUI recording stop
+```
+
+**Platform tools used automatically:**
+- **Android:** `adb screenrecord` (max 180s, capped with warning)
+- **iOS Simulator:** `xcrun simctl io recordVideo`
+- **Mac Catalyst:** `screencapture -v` (targets app window when possible)
+- **Windows/Linux:** `ffmpeg` (must be on PATH)
+
+**Options:** `--timeout <seconds>` (default 30), `--output <path>` (default `recording_<timestamp>.mp4`).
+Only one recording at a time — stop before starting a new one.
+
+### 8. Rebuild
 
 **Always kill the running app before rebuilding.** If the old instance is still running, its
 agent stays registered with the broker — polling `maui-devflow MAUI status` will succeed against
@@ -220,6 +247,9 @@ or `maui-devflow --agent-port 10224 MAUI status` — both are valid.
 | `MAUI element <elementId>` | Full element JSON (type, bounds, children, etc.) |
 | `MAUI navigate <route>` | Shell navigation (e.g. `//native`, `//blazor`) |
 | `MAUI logs [--limit N] [--skip N] [--source S]` | Fetch application logs (newest first). Source: native, webview, or omit for all |
+| `MAUI recording start [--output path] [--timeout 30]` | Start screen recording. Default timeout 30s. Uses platform-native tools (adb screenrecord, xcrun simctl, screencapture, ffmpeg) |
+| `MAUI recording stop` | Stop active recording and save the video file |
+| `MAUI recording status` | Check if a recording is currently in progress |
 
 Element IDs come from `MAUI tree` or `MAUI query`. AutomationId-based elements use their
 AutomationId directly. Others use generated hex IDs. When multiple elements share the same

@@ -52,6 +52,91 @@ public abstract class AppDriverBase : IAppDriver
     public virtual Task PressKeyAsync(string key)
         => Task.CompletedTask;
 
+    public virtual Task StartRecordingAsync(string outputFile, int timeoutSeconds = 30)
+        => throw new NotSupportedException($"Screen recording is not supported on {Platform}.");
+
+    public virtual Task<string> StopRecordingAsync()
+        => throw new NotSupportedException($"Screen recording is not supported on {Platform}.");
+
+    /// <summary>
+    /// Spawns a watchdog process that kills the recording after the timeout.
+    /// Returns the watchdog PID, or null if spawning failed.
+    /// </summary>
+    protected static int? SpawnWatchdog(int recordingPid, int timeoutSeconds)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("bash",
+                $"-c \"sleep {timeoutSeconds} && kill -INT {recordingPid} 2>/dev/null\"")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+            var watchdog = System.Diagnostics.Process.Start(psi);
+            return watchdog?.Id;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Kills the watchdog process if it's still running.
+    /// </summary>
+    protected static void KillWatchdog(int? watchdogPid)
+    {
+        if (watchdogPid == null) return;
+        try
+        {
+            var proc = System.Diagnostics.Process.GetProcessById(watchdogPid.Value);
+            if (!proc.HasExited)
+                proc.Kill(entireProcessTree: true);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Sends SIGINT to a process for graceful shutdown.
+    /// On Windows, kills the process directly.
+    /// </summary>
+    protected static void SendInterrupt(int pid)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var proc = System.Diagnostics.Process.GetProcessById(pid);
+                if (!proc.HasExited)
+                    proc.Kill();
+            }
+            catch { }
+        }
+        else
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo("kill", $"-INT {pid}")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                };
+                using var proc = System.Diagnostics.Process.Start(psi);
+                proc?.WaitForExit(5000);
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// Ensures no recording is currently in progress. Throws if one is active.
+    /// </summary>
+    protected static void EnsureNotRecording()
+    {
+        if (RecordingStateManager.IsRecording())
+            throw new InvalidOperationException(
+                "A recording is already in progress. Stop it first with 'maui recording stop'.");
+    }
+
     protected AgentClient EnsureClient()
         => Client ?? throw new InvalidOperationException("Not connected. Call ConnectAsync first.");
 
