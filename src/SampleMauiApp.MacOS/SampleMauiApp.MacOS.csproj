@@ -1,0 +1,94 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-macos</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SampleMauiApp</RootNamespace>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <ApplicationTitle>MauiTodo</ApplicationTitle>
+    <ApplicationId>com.companyname.mauitodo</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Platform.Maui.MacOS" Version="0.2.0-beta.1" />
+    <PackageReference Include="Platform.Maui.MacOS.BlazorWebView" Version="0.2.0-beta.1" />
+    <PackageReference Include="Platform.Maui.Essentials.MacOS" Version="0.2.0-beta.1" />
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MauiDevFlow.Agent\MauiDevFlow.Agent.csproj" />
+    <ProjectReference Include="..\MauiDevFlow.Blazor\MauiDevFlow.Blazor.csproj" />
+  </ItemGroup>
+
+  <!-- Link shared source files from SampleMauiApp -->
+  <ItemGroup>
+    <Compile Include="..\SampleMauiApp\App.xaml.cs" Link="App.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\AppShell.xaml.cs" Link="AppShell.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\MainPage.xaml.cs" Link="MainPage.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\BlazorTodoPage.xaml.cs" Link="BlazorTodoPage.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\DialogTestPage.xaml.cs" Link="DialogTestPage.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\InteractionTestPage.xaml.cs" Link="InteractionTestPage.xaml.cs" />
+    <Compile Include="..\SampleMauiApp\TodoService.cs" Link="TodoService.cs" />
+    <Compile Include="..\SampleMauiApp\TodoItem.cs" Link="TodoItem.cs" />
+    <Compile Include="..\SampleMauiApp\DebugFileLogger.cs" Link="DebugFileLogger.cs" />
+  </ItemGroup>
+
+  <!-- Link XAML files -->
+  <ItemGroup>
+    <MauiXaml Include="..\SampleMauiApp\App.xaml" Link="App.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\AppShell.xaml" Link="AppShell.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\MainPage.xaml" Link="MainPage.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\BlazorTodoPage.xaml" Link="BlazorTodoPage.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\DialogTestPage.xaml" Link="DialogTestPage.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\InteractionTestPage.xaml" Link="InteractionTestPage.xaml" />
+  </ItemGroup>
+
+  <!-- Resources -->
+  <ItemGroup>
+    <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+    <MauiImage Include="Resources\Images\*" />
+    <MauiImage Update="Resources\Images\dotnet_bot.svg" BaseSize="168,208" />
+    <MauiFont Include="Resources\Fonts\*" />
+    <MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- Bundle wwwroot for Blazor WebView -->
+  <ItemGroup>
+    <BundleResource Include="wwwroot\**" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- Bundle Blazor framework files and chobitsu.js into the macOS app bundle -->
+  <Target Name="_MacOSBundleBlazorFramework"
+          AfterTargets="_CopyResolvedFilesToPublishPreserveNewest"
+          Condition="'$(AppBundleDir)' != ''">
+    <ItemGroup>
+      <_BlazorWebViewJs Include="$(NuGetPackageRoot)microsoft.aspnetcore.components.webview/*/staticwebassets/blazor.webview.js" />
+    </ItemGroup>
+    <MakeDir Directories="$(AppBundleDir)/Contents/Resources/wwwroot/_framework" />
+    <Copy SourceFiles="@(_BlazorWebViewJs)"
+          DestinationFolder="$(AppBundleDir)/Contents/Resources/wwwroot/_framework"
+          SkipUnchangedFiles="true" />
+    <WriteLinesToFile File="$(AppBundleDir)/Contents/Resources/wwwroot/_framework/blazor.modules.json"
+                     Lines="[]" Overwrite="true" />
+    <Copy SourceFiles="..\MauiDevFlow.Blazor\wwwroot\chobitsu.js"
+          DestinationFolder="$(AppBundleDir)/Contents/Resources/wwwroot"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Remove duplicate static web assets from MauiDevFlow.Blazor -->
+  <Target Name="ResolveDuplicateStaticWebAssets" BeforeTargets="ResolveStaticWebAssetsInputs">
+    <ItemGroup>
+      <StaticWebAsset Remove="@(StaticWebAsset)"
+          Condition="'%(SourceId)' == 'MauiDevFlow.Blazor' AND $([System.String]::Copy('%(RelativePath)').StartsWith('_framework/'))" />
+    </ItemGroup>
+  </Target>
+
+</Project>

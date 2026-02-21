@@ -1,0 +1,151 @@
+@page "/"
+@using SampleMauiApp
+@inject TodoService TodoService
+@implements IDisposable
+
+<div class="todo-container">
+    <h1>📝 My Todos</h1>
+    <p class="counter">@TodoService.Summary</p>
+
+    <div class="todo-list">
+        @if (!TodoService.Items.Any())
+        {
+            <p class="empty">No todos yet. Add one below!</p>
+        }
+        else
+        {
+            @foreach (var item in TodoService.Items.ToList())
+            {
+                <div class="todo-item @(item.IsCompleted ? "completed" : "")">
+                    <input type="checkbox" checked="@item.IsCompleted"
+                           @onchange="() => Toggle(item)" />
+                    <div class="todo-content">
+                        <span class="title">@item.Title</span>
+                        @if (!string.IsNullOrWhiteSpace(item.Description))
+                        {
+                            <span class="description">@item.Description</span>
+                        }
+                    </div>
+                    <button class="delete-btn" @onclick="() => Delete(item)">✕</button>
+                </div>
+            }
+        }
+    </div>
+
+    <div class="add-bar">
+        <div class="add-inputs">
+            <input type="text" @bind="newTitle" @bind:event="oninput"
+                   placeholder="What needs to be done?"
+                   @onkeydown="HandleKey" />
+            <input type="text" class="desc-input" @bind="newDescription" @bind:event="oninput"
+                   placeholder="Description (optional)"
+                   @onkeydown="HandleKey" />
+        </div>
+        <button class="add-btn" @onclick="AddTodo">Add</button>
+    </div>
+</div>
+
+<style>
+    .todo-container {
+        font-family: -apple-system, BlazorWebView, sans-serif;
+        width: 100%;
+        padding: 16px;
+        padding-top: env(safe-area-inset-top, 16px);
+        background: #F5F5F5;
+        min-height: 100vh;
+        box-sizing: border-box;
+    }
+    html, body { margin: 0; padding: 0; background: #F5F5F5; }
+    h1 { color: #1C1B1F; font-size: 28px; margin: 8px 0 4px; }
+    .counter { color: #49454F; font-size: 14px; margin: 0 0 16px; }
+    .empty { color: #49454F; text-align: center; padding: 40px 0; }
+    .todo-list { display: flex; flex-direction: column; gap: 8px; }
+    .todo-item {
+        display: flex; align-items: center; gap: 12px;
+        background: #fff; border-radius: 10px; border: 1px solid #E0E0E0;
+        padding: 12px;
+    }
+    .todo-item.completed .title { text-decoration: line-through; color: #999; }
+    .todo-item.completed .description { color: #bbb; }
+    .todo-item input[type="checkbox"] {
+        width: 20px; height: 20px; accent-color: #6750A4; cursor: pointer;
+    }
+    .title { flex: 1; font-size: 16px; }
+    .todo-content { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .description { font-size: 12px; color: #49454F; }
+    .delete-btn {
+        background: none; border: none; color: #B3261E; font-size: 18px;
+        cursor: pointer; padding: 0 4px;
+    }
+    .add-bar {
+        display: flex; gap: 8px; margin-top: 16px;
+        background: #fff; border-radius: 12px; border: 1px solid #E0E0E0;
+        padding: 12px; align-items: center;
+    }
+    .add-inputs { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .add-bar input {
+        border: none; outline: none; font-size: 16px;
+        background: transparent; width: 100%;
+    }
+    .add-bar .desc-input { font-size: 13px; color: #49454F; }
+    .add-btn {
+        background: #6750A4; color: #fff; border: none; border-radius: 8px;
+        padding: 8px 16px; font-weight: bold; cursor: pointer;
+    }
+
+    @@media (prefers-color-scheme: dark) {
+        html, body { background: #1C1B1F; }
+        .todo-container { background: #1C1B1F; }
+        h1 { color: #E6E1E5; }
+        .counter { color: #CAC4D0; }
+        .empty { color: #CAC4D0; }
+        .todo-item { background: #2B2930; border-color: #49454F; }
+        .title { color: #E6E1E5; }
+        .todo-item.completed .title { color: #79747E; }
+        .todo-item.completed .description { color: #605D64; }
+        .description { color: #CAC4D0; }
+        .add-bar { background: #2B2930; border-color: #49454F; }
+        .add-bar input { color: #E6E1E5; }
+        .add-bar input::placeholder { color: #938F99; }
+        .add-bar .desc-input { color: #CAC4D0; }
+        .add-btn { background: #D0BCFF; color: #381E72; }
+        .delete-btn { color: #F2B8B5; }
+    }
+</style>
+
+@code {
+    private string newTitle = "";
+    private string newDescription = "";
+
+    protected override void OnInitialized()
+    {
+        TodoService.Changed += OnChanged;
+    }
+
+    private void OnChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void AddTodo()
+    {
+        var text = newTitle?.Trim();
+        if (string.IsNullOrEmpty(text)) return;
+        TodoService.Add(text, newDescription?.Trim() ?? "");
+        newTitle = "";
+        newDescription = "";
+    }
+
+    private void Toggle(TodoItem item) => TodoService.ToggleCompleted(item);
+    private void Delete(TodoItem item) => TodoService.Remove(item);
+
+    private void HandleKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") AddTodo();
+    }
+
+    public void Dispose()
+    {
+        TodoService.Changed -= OnChanged;
+    }
+}
