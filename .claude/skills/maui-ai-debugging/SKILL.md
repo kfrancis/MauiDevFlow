@@ -114,16 +114,19 @@ adb forward tcp:<port> tcp:<port> # Agent (required — lets CLI reach agent in 
 
 ### 4. Verify Connectivity
 
-After launching the app asynchronously, poll for the agent to connect:
+After launching the app asynchronously, wait for the agent to connect:
 
 ```bash
+maui-devflow wait                 # Block until any agent connects (default 120s timeout)
+maui-devflow wait --project path/to/App.csproj  # Wait for a specific project's agent
+maui-devflow wait --json          # Output full agent info as JSON
 maui-devflow list                 # Show all registered agents (via broker)
 maui-devflow MAUI status          # Agent connection + CDP readiness
-maui-devflow cdp status           # CDP-specific connection check
 ```
 
-Poll `maui-devflow MAUI status` every few seconds until it succeeds. If it hasn't connected
-after ~60-90 seconds, read the async shell output to check for build/launch errors.
+Use `maui-devflow wait` instead of polling — it blocks until an agent registers with the broker
+and prints the assigned port. With `--project`, it filters to a specific app. If no agent connects
+within the timeout (default 120s), it exits with code 1.
 
 The `list` command shows all agents registered with the broker, including their platform,
 TFM, and assigned port. Use this to find the port for `--agent-port` when multiple apps run.
@@ -220,7 +223,7 @@ the stale app instead of waiting for the new build.
 1. Stop the previous async shell or kill the app process
 2. Verify with `maui-devflow list` that the old agent is gone
 3. Run `dotnet build -f $TFM-<platform> -t:Run ...` in an async shell
-4. Poll `maui-devflow MAUI status` until connected → inspect
+4. `maui-devflow wait` until connected → inspect
 
 If the build fails, see [references/troubleshooting.md](references/troubleshooting.md).
 
@@ -285,6 +288,7 @@ The CLI auto-starts the broker on first use — no manual setup needed.
 | Command | Description |
 |---------|-------------|
 | `list` | Show all registered agents (ID, app, platform, TFM, port, uptime) |
+| `wait [--timeout 120] [--project path] [--wait-platform P] [--json]` | Wait for an agent to connect. Outputs the port (or JSON with `--json`). Useful after `dotnet build -t:Run` to block until the app is ready |
 | `broker status` | Broker daemon status and connected agent count |
 | `broker start` | Start broker daemon (auto-started by CLI — rarely needed manually) |
 | `broker stop` | Stop broker daemon |

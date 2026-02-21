@@ -128,6 +128,9 @@ dotnet tool install --global appledev.tools     # apple (simulators, provisionin
 ### Verify It Works
 
 ```bash
+# Wait for an agent to connect (blocks until ready)
+maui-devflow wait
+
 # List all connected agents (via broker)
 maui-devflow list
 
