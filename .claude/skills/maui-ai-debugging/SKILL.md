@@ -46,19 +46,38 @@ For complete setup instructions, see [references/setup.md](references/setup.md).
 
 ### 1. Ensure a Device/Simulator/Emulator is Running
 
+**⚠️ Multi-project conflict avoidance:** When multiple projects may run simultaneously
+(common with AI agents), each project should use its own dedicated simulator/emulator to
+prevent apps from replacing each other. Check what's already in use first:
+
+```bash
+maui-devflow list                                             # see all registered agents
+```
+
+If another iOS or Android agent is already registered, **create a new simulator/emulator**
+for your project instead of reusing the one that's already booted.
+
 **iOS Simulator:**
 ```bash
 xcrun simctl list devices booted                              # check booted sims
-xcrun simctl boot <UDID>                                      # boot if needed
+
+# Create a project-dedicated simulator to avoid conflicts
+xcrun simctl create "MyApp-iPhone17Pro" "iPhone 17 Pro" "iOS 26.2"
+xcrun simctl boot <UDID>                                      # boot the new sim
 ```
 
 **Android Emulator:**
 ```bash
 android avd list                                              # list AVDs
-android avd start --name <avd-name>                           # start emulator
+
+# Create a project-dedicated emulator to avoid conflicts
+android avd create --name "MyApp-Pixel8" \
+  --sdk "system-images;android-35;google_apis;arm64-v8a" --device pixel_8
+android avd start --name "MyApp-Pixel8"
 ```
 
 **Mac Catalyst / macOS (AppKit) / Linux/GTK:** No device setup needed — runs as desktop app.
+Multiple desktop apps can run simultaneously without conflicts.
 
 ### 2. Detect the TFM
 
