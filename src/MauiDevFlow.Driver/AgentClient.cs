@@ -144,12 +144,21 @@ public class AgentClient : IDisposable
 
     /// <summary>
     /// Take a screenshot (returns PNG bytes).
+    /// Optionally target a specific element by ID or CSS selector.
     /// </summary>
-    public async Task<byte[]?> ScreenshotAsync(int? window = null)
+    public async Task<byte[]?> ScreenshotAsync(int? window = null, string? elementId = null, string? selector = null)
     {
         try
         {
-            var url = window != null ? $"{_baseUrl}/api/screenshot?window={window}" : $"{_baseUrl}/api/screenshot";
+            var queryParams = new List<string>();
+            if (window != null) queryParams.Add($"window={window}");
+            if (elementId != null) queryParams.Add($"id={Uri.EscapeDataString(elementId)}");
+            if (selector != null) queryParams.Add($"selector={Uri.EscapeDataString(selector)}");
+
+            var url = queryParams.Count > 0
+                ? $"{_baseUrl}/api/screenshot?{string.Join("&", queryParams)}"
+                : $"{_baseUrl}/api/screenshot";
+
             var response = await _http.GetAsync(url);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadAsByteArrayAsync();

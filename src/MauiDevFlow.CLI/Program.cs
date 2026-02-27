@@ -185,8 +185,10 @@ class Program
 
         // MAUI screenshot
         var screenshotOutputOption = new Option<string?>("--output", "Output file path");
-        var mauiScreenshotCmd = new Command("screenshot", "Take screenshot") { screenshotOutputOption, windowOption };
-        mauiScreenshotCmd.SetHandler(async (host, port, output, window) => await MauiScreenshotAsync(host, port, output, window), agentHostOption, agentPortOption, screenshotOutputOption, windowOption);
+        var screenshotIdOption = new Option<string?>("--id", "Element ID to capture");
+        var screenshotSelectorOption = new Option<string?>("--selector", "CSS selector to capture (first match)");
+        var mauiScreenshotCmd = new Command("screenshot", "Take screenshot") { screenshotOutputOption, windowOption, screenshotIdOption, screenshotSelectorOption };
+        mauiScreenshotCmd.SetHandler(async (host, port, output, window, id, selector) => await MauiScreenshotAsync(host, port, output, window, id, selector), agentHostOption, agentPortOption, screenshotOutputOption, windowOption, screenshotIdOption, screenshotSelectorOption);
         mauiCommand.Add(mauiScreenshotCmd);
 
         // MAUI recording subcommands
@@ -1080,12 +1082,12 @@ class Program
         catch (Exception ex) { WriteError(ex.Message); }
     }
 
-    private static async Task MauiScreenshotAsync(string host, int port, string? output, int? window)
+    private static async Task MauiScreenshotAsync(string host, int port, string? output, int? window, string? id, string? selector)
     {
         try
         {
             using var client = new MauiDevFlow.Driver.AgentClient(host, port);
-            var data = await client.ScreenshotAsync(window);
+            var data = await client.ScreenshotAsync(window, id, selector);
             if (data == null)
             {
                 WriteError("Failed to capture screenshot");
@@ -1093,7 +1095,8 @@ class Program
             }
             var filename = output ?? $"screenshot_{DateTime.Now:yyyyMMdd_HHmmss}.png";
             await File.WriteAllBytesAsync(filename, data);
-            Console.WriteLine($"Screenshot saved: {Path.GetFullPath(filename)} ({data.Length} bytes)");
+            var target = id != null ? $" (element: {id})" : selector != null ? $" (selector: {selector})" : "";
+            Console.WriteLine($"Screenshot saved: {Path.GetFullPath(filename)} ({data.Length} bytes){target}");
         }
         catch (Exception ex) { WriteError(ex.Message); }
     }

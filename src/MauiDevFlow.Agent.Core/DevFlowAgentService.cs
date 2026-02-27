@@ -271,6 +271,71 @@ public class DevFlowAgentService : IDisposable
             }
         }
 
+        // Element-level screenshot by ID
+        if (request.QueryParams.TryGetValue("id", out var elementId) && !string.IsNullOrWhiteSpace(elementId))
+        {
+            try
+            {
+                var element = await DispatchAsync(() =>
+                {
+                    var el = _treeWalker.GetElementById(elementId, _app);
+                    return el as VisualElement;
+                });
+
+                if (element == null)
+                    return HttpResponse.Error($"Element '{elementId}' not found or not a VisualElement");
+
+                var pngData = await DispatchAsync(() => CaptureElementScreenshotAsync(element));
+                if (pngData == null)
+                    return HttpResponse.Error($"Capture returned null for element '{elementId}'");
+
+                return HttpResponse.Png(pngData);
+            }
+            catch (Exception ex)
+            {
+                return HttpResponse.Error($"Element screenshot failed: {ex.Message}");
+            }
+        }
+
+        // Element-level screenshot by CSS selector (captures first match)
+        if (request.QueryParams.TryGetValue("selector", out var selector) && !string.IsNullOrWhiteSpace(selector))
+        {
+            try
+            {
+                var matchId = await DispatchAsync(() =>
+                {
+                    var results = _treeWalker.QueryCss(_app, selector);
+                    return results.Count > 0 ? results[0].Id : null;
+                });
+
+                if (matchId == null)
+                    return HttpResponse.Error($"No elements matching selector '{selector}'");
+
+                var element = await DispatchAsync(() =>
+                {
+                    var el = _treeWalker.GetElementById(matchId);
+                    return el as VisualElement;
+                });
+
+                if (element == null)
+                    return HttpResponse.Error($"Element '{matchId}' not found or not a VisualElement");
+
+                var pngData = await DispatchAsync(() => CaptureElementScreenshotAsync(element));
+                if (pngData == null)
+                    return HttpResponse.Error($"Capture returned null for element '{matchId}'");
+
+                return HttpResponse.Png(pngData);
+            }
+            catch (FormatException ex)
+            {
+                return HttpResponse.Error($"Invalid CSS selector: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                return HttpResponse.Error($"Element screenshot failed: {ex.Message}");
+            }
+        }
+
         try
         {
             var windowIndex = ParseWindowIndex(request);
@@ -299,6 +364,16 @@ public class DevFlowAgentService : IDisposable
     protected virtual async Task<byte[]?> CaptureScreenshotAsync(VisualElement rootElement)
     {
         return await VisualDiagnostics.CaptureAsPngAsync(rootElement);
+    }
+
+    /// <summary>
+    /// Captures a screenshot of a specific element in the visual tree.
+    /// Override in platform-specific subclasses when VisualDiagnostics.CaptureAsPngAsync
+    /// is not supported (e.g. macOS AppKit).
+    /// </summary>
+    protected virtual async Task<byte[]?> CaptureElementScreenshotAsync(VisualElement element)
+    {
+        return await VisualDiagnostics.CaptureAsPngAsync(element);
     }
 
     /// <summary>
