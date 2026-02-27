@@ -348,7 +348,12 @@ class Program
         networkCommand.AddOption(networkHostOption);
         networkCommand.AddOption(networkMethodOption);
         networkCommand.SetHandler(async (host, port, json, limit, filterHost, filterMethod) =>
-            await MauiNetworkMonitorAsync(host, port, json, limit, filterHost, filterMethod),
+        {
+            if (json)
+                await MauiNetworkMonitorAsync(host, port, json, limit, filterHost, filterMethod);
+            else
+                await MauiDevFlow.CLI.NetworkMonitorTui.RunAsync(host, port, filterHost, filterMethod);
+        },
             agentHostOption, agentPortOption, networkJsonOption, networkLimitOption, networkHostOption, networkMethodOption);
 
         var networkListCmd = new Command("list", "List recent network requests (one-shot)");
