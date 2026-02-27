@@ -1,9 +1,11 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Dispatching;
 using Microsoft.Maui.Hosting;
 using Microsoft.Maui.LifecycleEvents;
 using MauiDevFlow.Agent.Core;
+using MauiDevFlow.Agent.Core.Network;
 using MauiDevFlow.Logging;
 
 namespace MauiDevFlow.Agent;
@@ -94,6 +96,18 @@ public static class AgentServiceExtensions
             var logProvider = new FileLogProvider(logDir, options.MaxLogFileSize, options.MaxLogFiles);
             service.SetLogProvider(logProvider);
             builder.Logging.AddProvider(logProvider);
+        }
+
+        // Auto-inject network monitoring handler into all IHttpClientFactory-created clients
+        if (options.EnableNetworkMonitoring)
+        {
+            var store = service.NetworkStore;
+            var maxBody = options.MaxNetworkBodySize;
+            builder.Services.AddSingleton(store);
+            builder.Services.ConfigureHttpClientDefaults(httpBuilder =>
+            {
+                httpBuilder.AddHttpMessageHandler(() => new MauiDevFlow.Agent.Core.Network.DevFlowHttpHandler(store, maxBody));
+            });
         }
 
         builder.ConfigureLifecycleEvents(lifecycle =>

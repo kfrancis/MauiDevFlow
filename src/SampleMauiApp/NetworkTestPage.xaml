@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SampleMauiApp.NetworkTestPage"
+             Title="Network Test">
+    <ContentPage.BackgroundColor>
+        <AppThemeBinding Light="#F5F5F5" Dark="#1C1B1F" />
+    </ContentPage.BackgroundColor>
+
+    <ScrollView Padding="16">
+        <VerticalStackLayout Spacing="12">
+            <Label Text="🌐 Network Test"
+                   FontSize="28" FontAttributes="Bold"
+                   AutomationId="NetworkHeader">
+                <Label.TextColor>
+                    <AppThemeBinding Light="#1C1B1F" Dark="#E6E1E5" />
+                </Label.TextColor>
+            </Label>
+            <Label Text="Make HTTP requests to test network monitoring"
+                   FontSize="14" AutomationId="NetworkSubtitle">
+                <Label.TextColor>
+                    <AppThemeBinding Light="#49454F" Dark="#CAC4D0" />
+                </Label.TextColor>
+            </Label>
+
+            <Button Text="GET - JSON Placeholder Posts"
+                    AutomationId="GetPostsButton"
+                    Clicked="OnGetPosts" />
+            <Button Text="GET - JSON Placeholder Users"
+                    AutomationId="GetUsersButton"
+                    Clicked="OnGetUsers" />
+            <Button Text="POST - Create Post"
+                    AutomationId="PostCreateButton"
+                    Clicked="OnCreatePost" />
+            <Button Text="GET - 404 (Not Found)"
+                    AutomationId="Get404Button"
+                    Clicked="OnGet404" />
+            <Button Text="GET - Invalid Host (Error)"
+                    AutomationId="GetErrorButton"
+                    Clicked="OnGetError" />
+
+            <Label x:Name="StatusLabel"
+                   Text="Ready"
+                   FontSize="14"
+                   AutomationId="NetworkStatus">
+                <Label.TextColor>
+                    <AppThemeBinding Light="#49454F" Dark="#CAC4D0" />
+                </Label.TextColor>
+            </Label>
+            <Label x:Name="ResultLabel"
+                   Text=""
+                   FontSize="12"
+                   MaxLines="10"
+                   AutomationId="NetworkResult">
+                <Label.TextColor>
+                    <AppThemeBinding Light="#49454F" Dark="#CAC4D0" />
+                </Label.TextColor>
+            </Label>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -210,6 +210,47 @@ public class AgentClient : IDisposable
         _disposed = true;
         _http.Dispose();
     }
+
+    // ── Network monitoring ──
+
+    public async Task<List<NetworkRequest>> GetNetworkRequestsAsync(
+        int limit = 100, string? host = null, string? method = null)
+    {
+        try
+        {
+            var url = $"{_baseUrl}/api/network?limit={limit}";
+            if (!string.IsNullOrEmpty(host)) url += $"&host={Uri.EscapeDataString(host)}";
+            if (!string.IsNullOrEmpty(method)) url += $"&method={Uri.EscapeDataString(method)}";
+
+            var response = await _http.GetStringAsync(url);
+            return JsonSerializer.Deserialize<List<NetworkRequest>>(response) ?? new();
+        }
+        catch { return new(); }
+    }
+
+    public async Task<NetworkRequest?> GetNetworkRequestDetailAsync(string id)
+    {
+        try
+        {
+            var response = await _http.GetStringAsync($"{_baseUrl}/api/network/{Uri.EscapeDataString(id)}");
+            return JsonSerializer.Deserialize<NetworkRequest>(response);
+        }
+        catch { return null; }
+    }
+
+    public async Task<bool> ClearNetworkRequestsAsync()
+    {
+        return await PostActionAsync("/api/network/clear", new { });
+    }
+
+    /// <summary>
+    /// Returns the WebSocket URL for live network monitoring.
+    /// </summary>
+    public string GetNetworkWebSocketUrl()
+    {
+        var wsBase = _baseUrl.Replace("http://", "ws://").Replace("https://", "wss://");
+        return $"{wsBase}/ws/network";
+    }
 }
 
 public class AgentStatus
@@ -228,4 +269,52 @@ public class AgentStatus
     public string? AppName { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("running")]
     public bool Running { get; set; }
+}
+
+public class NetworkRequest
+{
+    [System.Text.Json.Serialization.JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+    [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
+    public DateTimeOffset Timestamp { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("method")]
+    public string Method { get; set; } = "";
+    [System.Text.Json.Serialization.JsonPropertyName("url")]
+    public string Url { get; set; } = "";
+    [System.Text.Json.Serialization.JsonPropertyName("host")]
+    public string? Host { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("path")]
+    public string? Path { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("statusCode")]
+    public int? StatusCode { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("statusText")]
+    public string? StatusText { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("durationMs")]
+    public long DurationMs { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("requestSize")]
+    public long? RequestSize { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("responseSize")]
+    public long? ResponseSize { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("error")]
+    public string? Error { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("requestContentType")]
+    public string? RequestContentType { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("responseContentType")]
+    public string? ResponseContentType { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("requestHeaders")]
+    public Dictionary<string, string[]>? RequestHeaders { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("responseHeaders")]
+    public Dictionary<string, string[]>? ResponseHeaders { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("requestBody")]
+    public string? RequestBody { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("responseBody")]
+    public string? ResponseBody { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("requestBodyEncoding")]
+    public string? RequestBodyEncoding { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("responseBodyEncoding")]
+    public string? ResponseBodyEncoding { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("requestBodyTruncated")]
+    public bool RequestBodyTruncated { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("responseBodyTruncated")]
+    public bool ResponseBodyTruncated { get; set; }
 }

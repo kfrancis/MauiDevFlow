@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -18,6 +19,7 @@ public class AgentHttpServer : IDisposable
     private readonly int _port;
     private readonly Dictionary<string, Func<HttpRequest, Task<HttpResponse>>> _getRoutes = new();
     private readonly Dictionary<string, Func<HttpRequest, Task<HttpResponse>>> _postRoutes = new();
+    private readonly Dictionary<string, Func<TcpClient, NetworkStream, HttpRequest, CancellationToken, Task>> _wsRoutes = new();
 
     public int Port => _port;
     public bool IsRunning => _listenTask != null && !_listenTask.IsCompleted;
@@ -32,6 +34,9 @@ public class AgentHttpServer : IDisposable
 
     public void MapPost(string path, Func<HttpRequest, Task<HttpResponse>> handler)
         => _postRoutes[path.TrimEnd('/')] = handler;
+
+    public void MapWebSocket(string path, Func<TcpClient, NetworkStream, HttpRequest, CancellationToken, Task> handler)
+        => _wsRoutes[path.TrimEnd('/')] = handler;
 
     public void Start()
     {
@@ -71,12 +76,50 @@ public class AgentHttpServer : IDisposable
     {
         try
         {
+            var stream = client.GetStream();
+            var request = await ReadRequestAsync(stream, ct).ConfigureAwait(false);
+            if (request == null)
+            {
+                client.Dispose();
+                return;
+            }
+
+            // Check for WebSocket upgrade
+            if (request.Headers.TryGetValue("Upgrade", out var upgrade)
+                && upgrade.Equals("websocket", StringComparison.OrdinalIgnoreCase)
+                && _wsRoutes.TryGetValue(request.Path, out var wsHandler))
+            {
+                // Perform WebSocket handshake
+                if (!request.Headers.TryGetValue("Sec-WebSocket-Key", out var wsKey))
+                {
+                    client.Dispose();
+                    return;
+                }
+
+                var acceptKey = ComputeWebSocketAcceptKey(wsKey);
+                var handshake = "HTTP/1.1 101 Switching Protocols\r\n"
+                    + "Upgrade: websocket\r\n"
+                    + "Connection: Upgrade\r\n"
+                    + $"Sec-WebSocket-Accept: {acceptKey}\r\n"
+                    + "Access-Control-Allow-Origin: *\r\n"
+                    + "\r\n";
+                var handshakeBytes = Encoding.UTF8.GetBytes(handshake);
+                await stream.WriteAsync(handshakeBytes, ct).ConfigureAwait(false);
+                await stream.FlushAsync(ct).ConfigureAwait(false);
+
+                // Hand off to WebSocket handler (takes ownership of client — no using/dispose here)
+                _ = Task.Run(async () =>
+                {
+                    try { await wsHandler(client, stream, request, ct); }
+                    catch { }
+                    finally { client.Dispose(); }
+                }, ct);
+                return;
+            }
+
+            // Normal HTTP flow
             using (client)
             {
-                var stream = client.GetStream();
-                var request = await ReadRequestAsync(stream, ct).ConfigureAwait(false);
-                if (request == null) return;
-
                 var response = await RouteRequestAsync(request).ConfigureAwait(false);
                 await WriteResponseAsync(stream, response, ct).ConfigureAwait(false);
             }
@@ -127,6 +170,16 @@ public class AgentHttpServer : IDisposable
             }
         }
 
+        // Parse headers
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 1; i < lines.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[i])) break;
+            var colonIdx = lines[i].IndexOf(':');
+            if (colonIdx > 0)
+                headers[lines[i][..colonIdx].Trim()] = lines[i][(colonIdx + 1)..].Trim();
+        }
+
         // Find body (after blank line)
         string? body = null;
         var blankLineIdx = raw.IndexOf("\r\n\r\n");
@@ -160,6 +213,7 @@ public class AgentHttpServer : IDisposable
             Method = method,
             Path = path.TrimEnd('/'),
             QueryParams = queryParams,
+            Headers = headers,
             Body = body
         };
     }
@@ -228,6 +282,133 @@ public class AgentHttpServer : IDisposable
         _listener?.Stop();
         _cts?.Dispose();
     }
+
+    // ── WebSocket helpers (RFC 6455) ──
+
+    private static readonly byte[] WsMagicGuid = Encoding.UTF8.GetBytes("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+
+    private static string ComputeWebSocketAcceptKey(string clientKey)
+    {
+        var combined = Encoding.UTF8.GetBytes(clientKey.Trim() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+        var hash = SHA1.HashData(combined);
+        return Convert.ToBase64String(hash);
+    }
+
+    /// <summary>
+    /// Sends a text frame over a WebSocket connection.
+    /// </summary>
+    public static async Task WebSocketSendTextAsync(NetworkStream stream, string text, CancellationToken ct)
+    {
+        var payload = Encoding.UTF8.GetBytes(text);
+        await WebSocketSendFrameAsync(stream, 0x81, payload, ct); // 0x81 = FIN + text opcode
+    }
+
+    /// <summary>
+    /// Reads a text frame from a WebSocket connection. Returns null on close/error.
+    /// </summary>
+    public static async Task<string?> WebSocketReadTextAsync(NetworkStream stream, CancellationToken ct)
+    {
+        try
+        {
+            var header = new byte[2];
+            if (await ReadExactAsync(stream, header, ct) < 2) return null;
+
+            var fin = (header[0] & 0x80) != 0;
+            var opcode = header[0] & 0x0F;
+            var masked = (header[1] & 0x80) != 0;
+            var payloadLen = (long)(header[1] & 0x7F);
+
+            if (opcode == 0x08) return null; // close frame
+
+            if (payloadLen == 126)
+            {
+                var extLen = new byte[2];
+                if (await ReadExactAsync(stream, extLen, ct) < 2) return null;
+                payloadLen = (extLen[0] << 8) | extLen[1];
+            }
+            else if (payloadLen == 127)
+            {
+                var extLen = new byte[8];
+                if (await ReadExactAsync(stream, extLen, ct) < 8) return null;
+                payloadLen = 0;
+                for (int i = 0; i < 8; i++)
+                    payloadLen = (payloadLen << 8) | extLen[i];
+            }
+
+            byte[]? mask = null;
+            if (masked)
+            {
+                mask = new byte[4];
+                if (await ReadExactAsync(stream, mask, ct) < 4) return null;
+            }
+
+            if (payloadLen > 1_048_576) return null; // 1MB limit
+
+            var payload = new byte[payloadLen];
+            if (payloadLen > 0 && await ReadExactAsync(stream, payload, ct) < payloadLen) return null;
+
+            if (mask != null)
+            {
+                for (int i = 0; i < payload.Length; i++)
+                    payload[i] ^= mask[i % 4];
+            }
+
+            // Text frame (opcode 1) or continuation
+            if (opcode == 0x01 || opcode == 0x00)
+                return Encoding.UTF8.GetString(payload);
+
+            // Ping → send pong
+            if (opcode == 0x09)
+            {
+                await WebSocketSendFrameAsync(stream, 0x8A, payload, ct); // pong
+                return await WebSocketReadTextAsync(stream, ct); // continue reading
+            }
+
+            return null;
+        }
+        catch { return null; }
+    }
+
+    private static async Task WebSocketSendFrameAsync(NetworkStream stream, byte opcodeWithFin, byte[] payload, CancellationToken ct)
+    {
+        using var ms = new MemoryStream();
+        ms.WriteByte(opcodeWithFin);
+
+        if (payload.Length < 126)
+        {
+            ms.WriteByte((byte)payload.Length);
+        }
+        else if (payload.Length <= 65535)
+        {
+            ms.WriteByte(126);
+            ms.WriteByte((byte)(payload.Length >> 8));
+            ms.WriteByte((byte)(payload.Length & 0xFF));
+        }
+        else
+        {
+            ms.WriteByte(127);
+            var len = (long)payload.Length;
+            for (int i = 7; i >= 0; i--)
+                ms.WriteByte((byte)((len >> (i * 8)) & 0xFF));
+        }
+
+        ms.Write(payload);
+        var frame = ms.ToArray();
+        await stream.WriteAsync(frame, ct).ConfigureAwait(false);
+        await stream.FlushAsync(ct).ConfigureAwait(false);
+    }
+
+    private static async Task<int> ReadExactAsync(NetworkStream stream, byte[] buffer, CancellationToken ct)
+    {
+        int totalRead = 0;
+        while (totalRead < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(totalRead, buffer.Length - totalRead), ct);
+            if (read == 0) return totalRead;
+            totalRead += read;
+        }
+        return totalRead;
+    }
 }
 
 public class HttpRequest
@@ -236,6 +417,7 @@ public class HttpRequest
     public string Path { get; set; } = "/";
     public Dictionary<string, string> QueryParams { get; set; } = new();
     public Dictionary<string, string> RouteParams { get; set; } = new();
+    public Dictionary<string, string> Headers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string? Body { get; set; }
 
     private static readonly JsonSerializerOptions _readOptions = new() { PropertyNameCaseInsensitive = true };

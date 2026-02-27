@@ -5,6 +5,7 @@ using Microsoft.Maui.Controls;
 using Microsoft.Maui.Controls.Internals;
 using Microsoft.Maui.Dispatching;
 using MauiDevFlow.Logging;
+using MauiDevFlow.Agent.Core.Network;
 
 namespace MauiDevFlow.Agent.Core;
 
@@ -24,6 +25,11 @@ public class DevFlowAgentService : IDisposable
     private bool _disposed;
 
     /// <summary>
+    /// The network request store for capturing HTTP traffic.
+    /// </summary>
+    public NetworkRequestStore NetworkStore { get; }
+
+    /// <summary>
     /// Delegate for sending CDP commands to the Blazor WebView.
     /// Set by the Blazor package when both are registered.
     /// </summary>
@@ -40,6 +46,9 @@ public class DevFlowAgentService : IDisposable
         _options = options ?? new AgentOptions();
         _server = new AgentHttpServer(_options.Port);
         _treeWalker = CreateTreeWalker();
+        NetworkStore = new NetworkRequestStore(_options.MaxNetworkBufferSize);
+        if (_options.EnableNetworkMonitoring)
+            DevFlowHttp.SetStore(NetworkStore);
         RegisterRoutes();
     }
 
@@ -154,6 +163,14 @@ public class DevFlowAgentService : IDisposable
         _server.MapPost("/api/action/scroll", HandleScroll);
         _server.MapGet("/api/logs", HandleLogs);
         _server.MapPost("/api/cdp", HandleCdp);
+
+        // Network monitoring
+        _server.MapGet("/api/network", HandleNetworkList);
+        _server.MapGet("/api/network/{id}", HandleNetworkDetail);
+        _server.MapPost("/api/network/clear", HandleNetworkClear);
+
+        // WebSocket: live network monitoring stream
+        _server.MapWebSocket("/ws/network", HandleNetworkWebSocket);
     }
 
     private async Task<HttpResponse> HandleStatus(HttpRequest request)
@@ -941,6 +958,118 @@ public class DevFlowAgentService : IDisposable
         _brokerRegistration?.Dispose();
         _server.Dispose();
         _logProvider?.Dispose();
+    }
+
+    // ── Network monitoring endpoints ──
+
+    private Task<HttpResponse> HandleNetworkList(HttpRequest request)
+    {
+        var limit = int.TryParse(request.QueryParams.GetValueOrDefault("limit", "100"), out var l) ? l : 100;
+        var host = request.QueryParams.GetValueOrDefault("host");
+        var method = request.QueryParams.GetValueOrDefault("method");
+        int? status = request.QueryParams.TryGetValue("status", out var s) && int.TryParse(s, out var si) ? si : null;
+
+        var entries = NetworkStore.GetRecent(limit, host, method, status);
+        // Return summary-only (no headers/body) for the list
+        var summaries = entries.Select(e => e.ToSummary()).ToList();
+        return Task.FromResult(HttpResponse.Json(summaries));
+    }
+
+    private Task<HttpResponse> HandleNetworkDetail(HttpRequest request)
+    {
+        var id = request.RouteParams.GetValueOrDefault("id");
+        if (string.IsNullOrEmpty(id))
+            return Task.FromResult(HttpResponse.Error("Missing request ID"));
+
+        var entry = NetworkStore.GetById(id);
+        if (entry == null)
+            return Task.FromResult(HttpResponse.NotFound($"Network request '{id}' not found"));
+
+        return Task.FromResult(HttpResponse.Json(entry));
+    }
+
+    private Task<HttpResponse> HandleNetworkClear(HttpRequest request)
+    {
+        NetworkStore.Clear();
+        return Task.FromResult(HttpResponse.Ok("Network request buffer cleared"));
+    }
+
+    private async Task HandleNetworkWebSocket(
+        System.Net.Sockets.TcpClient client,
+        System.Net.Sockets.NetworkStream stream,
+        HttpRequest request,
+        CancellationToken ct)
+    {
+        // Send replay of recent entries
+        var recent = NetworkStore.GetRecent(100);
+        var replayMsg = JsonSerializer.Serialize(new
+        {
+            type = "replay",
+            entries = recent.Select(e => e.ToSummary())
+        });
+        await AgentHttpServer.WebSocketSendTextAsync(stream, replayMsg, ct);
+
+        // Subscribe to live entries
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var sendQueue = new System.Collections.Concurrent.ConcurrentQueue<Network.NetworkRequestEntry>();
+
+        void OnRequest(Network.NetworkRequestEntry entry) => sendQueue.Enqueue(entry);
+        NetworkStore.OnRequestCaptured += OnRequest;
+
+        try
+        {
+            // Read loop (handles client messages + detects disconnection)
+            var readTask = Task.Run(async () =>
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var msg = await AgentHttpServer.WebSocketReadTextAsync(stream, cts.Token);
+                    if (msg == null) { cts.Cancel(); break; }
+
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(msg);
+                        var msgType = doc.RootElement.GetProperty("type").GetString();
+
+                        if (msgType == "get_details" && doc.RootElement.TryGetProperty("id", out var idEl))
+                        {
+                            var id = idEl.GetString();
+                            var entry = id != null ? NetworkStore.GetById(id) : null;
+                            var resp = JsonSerializer.Serialize(new { type = "details", entry });
+                            await AgentHttpServer.WebSocketSendTextAsync(stream, resp, cts.Token);
+                        }
+                        else if (msgType == "clear")
+                        {
+                            NetworkStore.Clear();
+                        }
+                    }
+                    catch { }
+                }
+            }, cts.Token);
+
+            // Send loop — drain queue periodically
+            while (!cts.Token.IsCancellationRequested)
+            {
+                while (sendQueue.TryDequeue(out var entry))
+                {
+                    try
+                    {
+                        var json = JsonSerializer.Serialize(new { type = "request", entry = entry.ToSummary() });
+                        await AgentHttpServer.WebSocketSendTextAsync(stream, json, cts.Token);
+                    }
+                    catch { cts.Cancel(); break; }
+                }
+
+                try { await Task.Delay(50, cts.Token); }
+                catch { break; }
+            }
+
+            await readTask;
+        }
+        finally
+        {
+            NetworkStore.OnRequestCaptured -= OnRequest;
+        }
     }
 
     private Task<HttpResponse> HandleLogs(HttpRequest request)

@@ -27,8 +27,8 @@ Agent architecture:
     └── Agent.Gtk (net10.0) ← GTK/Linux platform code (GirCore.Gtk-4.0)
 ```
 
-- **Single port** (default 9223, configurable via `.mauidevflow` file) serves both native MAUI commands and CDP
-- **No WebSocket** — CDP uses HTTP POST request/response via Chobitsu's synchronous JS eval
+- **Single port** (default 9223, configurable via `.mauidevflow` file) serves both native MAUI commands, CDP, and WebSocket connections
+- **WebSocket support** — `/ws/network` streams captured HTTP requests in real-time; CDP still uses HTTP POST via Chobitsu
 - **Blazor→Agent wiring** uses reflection to avoid a direct package dependency between the two NuGet packages
 
 ## Building & Testing
@@ -97,6 +97,18 @@ The CLI command `maui-devflow update-skill` downloads the latest skill files fro
 - **Native logs**: `ILogger` → `FileLogProvider` → rotating JSONL files → `/api/logs` endpoint
 - **WebView logs**: JS `console.*` → intercepted by `console-intercept.js` → buffered in `window.__webviewLogs` → drained every 2s by native timer → written to same JSONL files with `source: "webview"`
 - Log entries have a `source` field (`"native"` or `"webview"`) for filtering via `?source=` query param
+
+## Network Monitoring Architecture
+
+- **Interception**: `DevFlowHttpHandler` (DelegatingHandler) wraps platform-specific handlers (AndroidMessageHandler, NSUrlSessionHandler, etc.)
+- **Auto-injection**: `ConfigureHttpClientDefaults` in `AddMauiDevFlowAgent()` registers the handler for all `IHttpClientFactory` clients
+- **Non-DI clients**: `DevFlowHttp.CreateClient()` helper wraps `new HttpClient()` with the interceptor
+- **Storage**: `NetworkRequestStore` (ConcurrentQueue ring buffer, default 500 entries) with `OnRequestCaptured` event
+- **Body capture**: Text bodies up to 256KB (configurable), binary as base64. Truncated bodies flagged
+- **REST API**: `/api/network` (list), `/api/network/{id}` (detail), `/api/network/clear` (clear buffer)
+- **WebSocket**: `/ws/network` sends replay of buffered history on connect, then streams new entries live
+- **CLI**: `MAUI network` (live TUI), `MAUI network --json` (JSONL streaming), `MAUI network list`, `MAUI network detail`, `MAUI network clear`
+- **Apple namespace conflict**: Agent.Core's `Network` namespace conflicts with Apple's `Network` framework — use fully-qualified `MauiDevFlow.Agent.Core.Network.DevFlowHttpHandler` in AgentServiceExtensions.cs
 
 ## Windows Support
 

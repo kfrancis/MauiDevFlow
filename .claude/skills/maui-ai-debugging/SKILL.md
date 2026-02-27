@@ -234,6 +234,49 @@ maui-devflow MAUI recording stop
 **Options:** `--timeout <seconds>` (default 30), `--output <path>` (default `recording_<timestamp>.mp4`).
 Only one recording at a time — stop before starting a new one.
 
+### 7. Network Request Monitoring
+
+Monitor HTTP requests made by the app in real-time. MauiDevFlow automatically intercepts
+all `IHttpClientFactory`-based HTTP traffic via a `DelegatingHandler` — no app code changes
+needed beyond the standard `AddMauiDevFlowAgent()` setup.
+
+```bash
+# Live monitor — streams requests as they happen (Ctrl+C to stop)
+maui-devflow MAUI network
+
+# JSONL streaming — machine-readable, one JSON object per line
+maui-devflow MAUI network --json
+
+# One-shot: list recent captured requests
+maui-devflow MAUI network list
+
+# Filter by method or host
+maui-devflow MAUI network list --method POST
+maui-devflow MAUI network list --host api.example.com
+
+# Full request/response details (headers + body)
+maui-devflow MAUI network detail <requestId>
+
+# Clear captured requests
+maui-devflow MAUI network clear
+```
+
+**How it works:**
+- A `DelegatingHandler` wraps the platform's HTTP handler (AndroidMessageHandler,
+  NSUrlSessionHandler, etc.), capturing request/response metadata, headers, and bodies
+- Auto-injected via `ConfigureHttpClientDefaults` — works for all `IHttpClientFactory` clients
+- For `new HttpClient()` outside DI, use `DevFlowHttp.CreateClient()` helper
+- Bodies up to 256KB are captured (configurable via `AgentOptions.MaxNetworkBodySize`)
+- A ring buffer (default 500 entries) stores recent requests in-memory
+
+**JSONL output** is ideal for AI parsing — pipe to `jq` or process programmatically:
+```bash
+maui-devflow MAUI network --json | jq 'select(.statusCode >= 400)'
+```
+
+**WebSocket streaming:** The live monitor uses WebSocket (`/ws/network`) for real-time push.
+Connecting clients receive a replay of buffered history, then live entries as they arrive.
+
 ## Command Reference
 
 ### maui-devflow MAUI (Native Agent)
@@ -263,6 +306,10 @@ or `maui-devflow --agent-port 10224 MAUI status` — both are valid.
 | `MAUI recording start [--output path] [--timeout 30]` | Start screen recording. Default timeout 30s. Uses platform-native tools (adb screenrecord, xcrun simctl, screencapture, ffmpeg) |
 | `MAUI recording stop` | Stop active recording and save the video file |
 | `MAUI recording status` | Check if a recording is currently in progress |
+| `MAUI network` | Live network monitor — streams HTTP requests in real-time (Ctrl+C to stop). Use `--json` for JSONL output |
+| `MAUI network list [--host H] [--method M] [--json]` | One-shot: dump recent captured HTTP requests as table or JSONL |
+| `MAUI network detail <requestId>` | Full request/response details: headers, body, timing |
+| `MAUI network clear` | Clear the captured request buffer |
 
 Element IDs come from `MAUI tree` or `MAUI query`. AutomationId-based elements use their
 AutomationId directly. Others use generated hex IDs. When multiple elements share the same

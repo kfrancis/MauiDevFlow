@@ -337,6 +337,44 @@ class Program
             agentHostOption, agentPortOption, logsLimitOption, logsSkipOption, logsSourceOption);
         mauiCommand.Add(mauiLogsCmd);
 
+        // ── Network monitoring command ──
+        var networkCommand = new Command("network", "Monitor HTTP network requests");
+        var networkJsonOption = new Option<bool>("--json", () => false, "Output as JSONL (machine-readable)");
+        var networkLimitOption = new Option<int>("--limit", () => 100, "Maximum number of entries to show");
+        var networkHostOption = new Option<string?>("--host", () => null, "Filter by host");
+        var networkMethodOption = new Option<string?>("--method", () => null, "Filter by HTTP method");
+        networkCommand.AddOption(networkJsonOption);
+        networkCommand.AddOption(networkLimitOption);
+        networkCommand.AddOption(networkHostOption);
+        networkCommand.AddOption(networkMethodOption);
+        networkCommand.SetHandler(async (host, port, json, limit, filterHost, filterMethod) =>
+            await MauiNetworkMonitorAsync(host, port, json, limit, filterHost, filterMethod),
+            agentHostOption, agentPortOption, networkJsonOption, networkLimitOption, networkHostOption, networkMethodOption);
+
+        var networkListCmd = new Command("list", "List recent network requests (one-shot)");
+        networkListCmd.AddOption(networkJsonOption);
+        networkListCmd.AddOption(networkLimitOption);
+        networkListCmd.AddOption(networkHostOption);
+        networkListCmd.AddOption(networkMethodOption);
+        networkListCmd.SetHandler(async (host, port, json, limit, filterHost, filterMethod) =>
+            await MauiNetworkListAsync(host, port, json, limit, filterHost, filterMethod),
+            agentHostOption, agentPortOption, networkJsonOption, networkLimitOption, networkHostOption, networkMethodOption);
+        networkCommand.Add(networkListCmd);
+
+        var networkDetailId = new Argument<string>("id", "Request ID to show details for");
+        var networkDetailCmd = new Command("detail", "Show full request/response details") { networkDetailId };
+        networkDetailCmd.SetHandler(async (host, port, id) =>
+            await MauiNetworkDetailAsync(host, port, id),
+            agentHostOption, agentPortOption, networkDetailId);
+        networkCommand.Add(networkDetailCmd);
+
+        var networkClearCmd = new Command("clear", "Clear the network request buffer");
+        networkClearCmd.SetHandler(async (host, port) => await MauiNetworkClearAsync(host, port),
+            agentHostOption, agentPortOption);
+        networkCommand.Add(networkClearCmd);
+
+        mauiCommand.Add(networkCommand);
+
         rootCommand.Add(mauiCommand);
 
         // ===== update-skill command =====
@@ -1302,6 +1340,276 @@ class Program
         }
         catch (Exception ex) { WriteError(ex.Message); }
     }
+
+    // ── Network monitoring ──
+
+    private static async Task MauiNetworkMonitorAsync(string host, int port, bool json, int limit, string? filterHost, string? filterMethod)
+    {
+        try
+        {
+            var wsUrl = $"ws://{host}:{port}/ws/network";
+            using var ws = new System.Net.WebSockets.ClientWebSocket();
+            var cts = new CancellationTokenSource();
+
+            Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+            await ws.ConnectAsync(new Uri(wsUrl), cts.Token);
+
+            if (!json)
+            {
+                Console.WriteLine($"Connected to network monitor at {host}:{port}");
+                Console.WriteLine("Listening for HTTP requests... (Ctrl+C to stop)\n");
+                PrintNetworkTableHeader();
+            }
+
+            int counter = 0;
+            var buffer = new byte[65536];
+            var sb = new StringBuilder();
+
+            while (!cts.Token.IsCancellationRequested && ws.State == System.Net.WebSockets.WebSocketState.Open)
+            {
+                System.Net.WebSockets.WebSocketReceiveResult result;
+                sb.Clear();
+                do
+                {
+                    result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token);
+                    if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) { cts.Cancel(); break; }
+                    sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                } while (!result.EndOfMessage);
+
+                if (cts.Token.IsCancellationRequested) break;
+
+                var msg = sb.ToString();
+                using var doc = JsonDocument.Parse(msg);
+                var type = doc.RootElement.GetProperty("type").GetString();
+
+                if (type == "replay" && doc.RootElement.TryGetProperty("entries", out var entries))
+                {
+                    foreach (var entry in entries.EnumerateArray())
+                    {
+                        if (!MatchesFilter(entry, filterHost, filterMethod)) continue;
+                        counter++;
+                        if (json) PrintNetworkEntryJson(entry);
+                        else PrintNetworkEntryRow(counter, entry);
+                    }
+                }
+                else if (type == "request" && doc.RootElement.TryGetProperty("entry", out var reqEntry))
+                {
+                    if (!MatchesFilter(reqEntry, filterHost, filterMethod)) continue;
+                    counter++;
+                    if (counter > limit) continue;
+                    if (json) PrintNetworkEntryJson(reqEntry);
+                    else PrintNetworkEntryRow(counter, reqEntry);
+                }
+            }
+
+            if (!json) Console.WriteLine($"\n{counter} requests captured.");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { WriteError(ex.Message); }
+    }
+
+    private static async Task MauiNetworkListAsync(string host, int port, bool json, int limit, string? filterHost, string? filterMethod)
+    {
+        try
+        {
+            using var client = new MauiDevFlow.Driver.AgentClient(host, port);
+            var requests = await client.GetNetworkRequestsAsync(limit, filterHost, filterMethod);
+
+            if (json)
+            {
+                foreach (var r in requests)
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }));
+            }
+            else
+            {
+                if (requests.Count == 0)
+                {
+                    Console.WriteLine("No network requests captured.");
+                    return;
+                }
+
+                PrintNetworkTableHeader();
+                int counter = 0;
+                foreach (var r in requests)
+                {
+                    counter++;
+                    PrintNetworkRequestRow(counter, r);
+                }
+                Console.WriteLine($"\n{requests.Count} requests.");
+            }
+        }
+        catch (Exception ex) { WriteError(ex.Message); }
+    }
+
+    private static async Task MauiNetworkDetailAsync(string host, int port, string id)
+    {
+        try
+        {
+            using var client = new MauiDevFlow.Driver.AgentClient(host, port);
+            var req = await client.GetNetworkRequestDetailAsync(id);
+
+            if (req == null)
+            {
+                WriteError($"Network request '{id}' not found.");
+                return;
+            }
+
+            Console.WriteLine($"{"ID:",-20} {req.Id}");
+            Console.WriteLine($"{"Timestamp:",-20} {req.Timestamp:O}");
+            Console.WriteLine($"{"Method:",-20} {req.Method}");
+            Console.WriteLine($"{"URL:",-20} {req.Url}");
+            Console.WriteLine($"{"Status:",-20} {(req.StatusCode?.ToString() ?? "ERROR")} {req.StatusText ?? ""}");
+            Console.WriteLine($"{"Duration:",-20} {req.DurationMs}ms");
+            if (req.Error != null) Console.WriteLine($"{"Error:",-20} {req.Error}");
+
+            if (req.RequestHeaders != null && req.RequestHeaders.Count > 0)
+            {
+                Console.WriteLine("\n── Request Headers ──");
+                foreach (var h in req.RequestHeaders)
+                    Console.WriteLine($"  {h.Key}: {string.Join(", ", h.Value)}");
+            }
+
+            if (req.RequestBody != null)
+            {
+                Console.WriteLine($"\n── Request Body ({req.RequestSize ?? 0} bytes{(req.RequestBodyTruncated ? ", truncated" : "")}) ──");
+                PrintBody(req.RequestBody, req.RequestBodyEncoding);
+            }
+
+            if (req.ResponseHeaders != null && req.ResponseHeaders.Count > 0)
+            {
+                Console.WriteLine("\n── Response Headers ──");
+                foreach (var h in req.ResponseHeaders)
+                    Console.WriteLine($"  {h.Key}: {string.Join(", ", h.Value)}");
+            }
+
+            if (req.ResponseBody != null)
+            {
+                Console.WriteLine($"\n── Response Body ({req.ResponseSize ?? 0} bytes{(req.ResponseBodyTruncated ? ", truncated" : "")}) ──");
+                PrintBody(req.ResponseBody, req.ResponseBodyEncoding);
+            }
+        }
+        catch (Exception ex) { WriteError(ex.Message); }
+    }
+
+    private static async Task MauiNetworkClearAsync(string host, int port)
+    {
+        try
+        {
+            using var client = new MauiDevFlow.Driver.AgentClient(host, port);
+            var result = await client.ClearNetworkRequestsAsync();
+            Console.WriteLine(result ? "Network request buffer cleared." : "Failed to clear.");
+        }
+        catch (Exception ex) { WriteError(ex.Message); }
+    }
+
+    // ── Network display helpers ──
+
+    private static void PrintNetworkTableHeader()
+    {
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"{"#",-5} {"Method",-7} {"URL",-50} {"Status",-7} {"Duration",-10} {"Size",-10}");
+        Console.WriteLine(new string('─', 89));
+        Console.ResetColor();
+    }
+
+    private static void PrintNetworkEntryRow(int index, JsonElement entry)
+    {
+        var method = entry.GetProperty("method").GetString() ?? "";
+        var url = entry.GetProperty("url").GetString() ?? "";
+        var statusCode = entry.TryGetProperty("statusCode", out var sc) && sc.ValueKind == JsonValueKind.Number ? sc.GetInt32() : (int?)null;
+        var durationMs = entry.TryGetProperty("durationMs", out var d) ? d.GetInt64() : 0;
+        var responseSize = entry.TryGetProperty("responseSize", out var rs) && rs.ValueKind == JsonValueKind.Number ? rs.GetInt64() : (long?)null;
+        var error = entry.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+
+        // Truncate URL
+        if (url.Length > 48) url = url[..45] + "...";
+
+        var statusStr = statusCode?.ToString() ?? (error != null ? "ERR" : "---");
+        var durationStr = durationMs > 0 ? $"{durationMs}ms" : "--";
+        var sizeStr = responseSize.HasValue ? FormatSize(responseSize.Value) : "--";
+
+        Console.ForegroundColor = GetStatusColor(statusCode, error);
+        Console.WriteLine($"{index,-5} {method,-7} {url,-50} {statusStr,-7} {durationStr,-10} {sizeStr,-10}");
+        Console.ResetColor();
+    }
+
+    private static void PrintNetworkRequestRow(int index, MauiDevFlow.Driver.NetworkRequest r)
+    {
+        var url = r.Url;
+        if (url.Length > 48) url = url[..45] + "...";
+
+        var statusStr = r.StatusCode?.ToString() ?? (r.Error != null ? "ERR" : "---");
+        var durationStr = r.DurationMs > 0 ? $"{r.DurationMs}ms" : "--";
+        var sizeStr = r.ResponseSize.HasValue ? FormatSize(r.ResponseSize.Value) : "--";
+
+        Console.ForegroundColor = GetStatusColor(r.StatusCode, r.Error);
+        Console.WriteLine($"{index,-5} {r.Method,-7} {url,-50} {statusStr,-7} {durationStr,-10} {sizeStr,-10}");
+        Console.ResetColor();
+    }
+
+    private static void PrintNetworkEntryJson(JsonElement entry)
+    {
+        Console.WriteLine(entry.GetRawText());
+    }
+
+    private static void PrintBody(string body, string? encoding)
+    {
+        if (encoding == "base64")
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"  [base64, {body.Length} chars]");
+            Console.ResetColor();
+        }
+        else
+        {
+            // Try to pretty-print JSON
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                Console.WriteLine(JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch
+            {
+                Console.WriteLine(body);
+            }
+        }
+    }
+
+    private static bool MatchesFilter(JsonElement entry, string? filterHost, string? filterMethod)
+    {
+        if (!string.IsNullOrEmpty(filterHost))
+        {
+            var host = entry.TryGetProperty("host", out var h) ? h.GetString() : null;
+            if (host == null || !host.Contains(filterHost, StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        if (!string.IsNullOrEmpty(filterMethod))
+        {
+            var method = entry.GetProperty("method").GetString();
+            if (!string.Equals(method, filterMethod, StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        return true;
+    }
+
+    private static ConsoleColor GetStatusColor(int? statusCode, string? error)
+    {
+        if (error != null) return ConsoleColor.Red;
+        return statusCode switch
+        {
+            >= 200 and < 300 => ConsoleColor.Green,
+            >= 300 and < 400 => ConsoleColor.Yellow,
+            >= 400 and < 500 => ConsoleColor.Red,
+            >= 500 => ConsoleColor.DarkRed,
+            _ => ConsoleColor.Gray
+        };
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+        _ => $"{bytes / (1024.0 * 1024.0):F1} MB"
+    };
 
     private static void PrintTree(List<MauiDevFlow.Driver.ElementInfo> elements, int indent)
     {

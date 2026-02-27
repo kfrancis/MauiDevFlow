@@ -38,4 +38,21 @@ public class AgentOptions
     /// Maximum number of rotated log files to keep. Default: 5.
     /// </summary>
     public int MaxLogFiles { get; set; } = 5;
+
+    /// <summary>
+    /// Whether to intercept HttpClient requests for network monitoring. Default: true.
+    /// When enabled, all IHttpClientFactory-created HttpClients are automatically monitored.
+    /// </summary>
+    public bool EnableNetworkMonitoring { get; set; } = true;
+
+    /// <summary>
+    /// Maximum size of request/response bodies to capture, in bytes. Default: 256KB.
+    /// Bodies larger than this are truncated. Set to 0 to disable body capture.
+    /// </summary>
+    public int MaxNetworkBodySize { get; set; } = 256 * 1024;
+
+    /// <summary>
+    /// Maximum number of network requests to keep in the ring buffer. Default: 500.
+    /// </summary>
+    public int MaxNetworkBufferSize { get; set; } = 500;
 }

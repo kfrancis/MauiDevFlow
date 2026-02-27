@@ -20,6 +20,7 @@ manually check the simulator.
 - **Native MAUI Automation** — Visual tree inspection, element interaction (tap, fill, clear), screenshots via in-app Agent
 - **Blazor WebView Debugging** — CDP bridge using Chobitsu for JavaScript evaluation, DOM manipulation, page navigation
 - **Unified Logging** — Native `ILogger` and WebView `console.log/warn/error` unified into a single log stream with source filtering
+- **Network Request Monitoring** — Automatic HTTP traffic interception via DelegatingHandler with real-time WebSocket streaming, body capture, and JSONL output
 - **Broker Daemon** — Automatic port assignment and agent discovery for simultaneous multi-app debugging
 - **CLI Tool** (`maui-devflow`) — Scriptable commands for both native and Blazor automation
 - **Driver Library** — Platform-aware (Mac Catalyst, Android, iOS Simulator, Linux/GTK) orchestration
@@ -158,6 +159,13 @@ maui-devflow MAUI recording start --timeout 30
 # ... interact with the app ...
 maui-devflow MAUI recording stop
 
+# Network request monitoring
+maui-devflow MAUI network              # live monitor (Ctrl+C to stop)
+maui-devflow MAUI network --json       # JSONL streaming for AI
+maui-devflow MAUI network list         # one-shot dump of recent requests
+maui-devflow MAUI network detail <id>  # full headers + body for a request
+maui-devflow MAUI network clear        # clear captured requests
+
 # Live edit native properties (no rebuild)
 maui-devflow MAUI set-property HeaderLabel TextColor "Tomato"
 maui-devflow MAUI set-property HeaderLabel FontSize "32"
@@ -232,6 +240,10 @@ auto-assigned by the broker (range 10223–10899), or configurable via `.mauidev
 | `/api/property/{id}/{name}` | GET | Get property value |
 | `/api/property/{id}/{name}` | POST | Set property `{"value":"..."}` |
 | `/api/logs?limit=N&skip=N&source=S` | GET | Application logs (source: `native`, `webview`, or omit for all) |
+| `/api/network?limit=N&host=H&method=M` | GET | Recent captured HTTP requests (summary) |
+| `/api/network/{id}` | GET | Full request/response details (headers, body) |
+| `/api/network/clear` | POST | Clear captured request buffer |
+| `/ws/network` | WS | WebSocket stream of HTTP requests (replay + live) |
 | `/api/cdp` | POST | Forward CDP command to Blazor WebView |
 
 ## Project Structure

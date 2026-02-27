@@ -13,5 +13,7 @@
                   ContentTemplate="{DataTemplate local:InteractionTestPage}" />
     <ShellContent Title="Dialogs" Route="dialogs"
                   ContentTemplate="{DataTemplate local:DialogTestPage}" />
+    <ShellContent Title="Network" Route="network"
+                  ContentTemplate="{DataTemplate local:NetworkTestPage}" />
 
 </Shell>
