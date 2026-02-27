@@ -71,6 +71,31 @@ public class GtkAgentService : DevFlowAgentService
         return false;
     }
 
+    protected override Task<byte[]?> CaptureElementScreenshotAsync(VisualElement element)
+    {
+        // Try the standard MAUI API first
+        try
+        {
+            var result = VisualDiagnostics.CaptureAsPngAsync(element).GetAwaiter().GetResult();
+            if (result != null) return Task.FromResult<byte[]?>(result);
+        }
+        catch { }
+
+        // GTK4-specific fallback: capture the specific widget via WidgetPaintable
+        try
+        {
+            if (element.Handler?.PlatformView is global::Gtk.Widget widget)
+            {
+                var pngBytes = CaptureGtkWidget(widget);
+                if (pngBytes != null)
+                    return Task.FromResult<byte[]?>(pngBytes);
+            }
+        }
+        catch { }
+
+        return Task.FromResult<byte[]?>(null);
+    }
+
     protected override async Task<byte[]?> CaptureScreenshotAsync(VisualElement rootElement)
     {
         // Try the standard MAUI API first
@@ -95,11 +120,11 @@ public class GtkAgentService : DevFlowAgentService
         return null;
     }
 
-    private static byte[]? CaptureGtkWindow(global::Gtk.Window window)
+    private static byte[]? CaptureGtkWidget(global::Gtk.Widget widget)
     {
         try
         {
-            var paintable = global::Gtk.WidgetPaintable.New(window);
+            var paintable = global::Gtk.WidgetPaintable.New(widget);
             var width = paintable.GetIntrinsicWidth();
             var height = paintable.GetIntrinsicHeight();
 
@@ -110,13 +135,12 @@ public class GtkAgentService : DevFlowAgentService
             var node = snapshot.ToNode();
             if (node == null) return null;
 
-            var renderer = window.GetNative()?.GetRenderer();
+            var renderer = widget.GetNative()?.GetRenderer();
             if (renderer == null) return null;
 
             var texture = renderer.RenderTexture(node, null);
             if (texture == null) return null;
 
-            // Save to a temporary file and read back as bytes
             var tmpPath = System.IO.Path.GetTempFileName() + ".png";
             try
             {
@@ -132,6 +156,11 @@ public class GtkAgentService : DevFlowAgentService
         {
             return null;
         }
+    }
+
+    private static byte[]? CaptureGtkWindow(global::Gtk.Window window)
+    {
+        return CaptureGtkWidget(window);
     }
 
     protected override void TryNativeResize(IWindow window, int width, int height)
