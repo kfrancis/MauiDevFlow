@@ -108,6 +108,9 @@ public class AgentHttpServer : IDisposable
                 await stream.FlushAsync(ct).ConfigureAwait(false);
 
                 // Hand off to WebSocket handler (takes ownership of client — no using/dispose here)
+                client.Client.SetSocketOption(
+                    System.Net.Sockets.SocketOptionLevel.Socket,
+                    System.Net.Sockets.SocketOptionName.KeepAlive, true);
                 _ = Task.Run(async () =>
                 {
                     try { await wsHandler(client, stream, request, ct); }
@@ -301,6 +304,14 @@ public class AgentHttpServer : IDisposable
     {
         var payload = Encoding.UTF8.GetBytes(text);
         await WebSocketSendFrameAsync(stream, 0x81, payload, ct); // 0x81 = FIN + text opcode
+    }
+
+    /// <summary>
+    /// Sends a ping frame to keep the WebSocket connection alive.
+    /// </summary>
+    public static async Task WebSocketSendPingAsync(NetworkStream stream, CancellationToken ct)
+    {
+        await WebSocketSendFrameAsync(stream, 0x89, Array.Empty<byte>(), ct); // 0x89 = FIN + ping opcode
     }
 
     /// <summary>

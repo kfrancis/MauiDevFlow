@@ -1345,68 +1345,100 @@ class Program
 
     private static async Task MauiNetworkMonitorAsync(string host, int port, bool json, int limit, string? filterHost, string? filterMethod)
     {
-        try
+        var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+        int counter = 0;
+        var wsUrl = $"ws://{host}:{port}/ws/network";
+
+        while (!cts.Token.IsCancellationRequested)
         {
-            var wsUrl = $"ws://{host}:{port}/ws/network";
-            using var ws = new System.Net.WebSockets.ClientWebSocket();
-            var cts = new CancellationTokenSource();
-
-            Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-
-            await ws.ConnectAsync(new Uri(wsUrl), cts.Token);
-
-            if (!json)
+            try
             {
-                Console.WriteLine($"Connected to network monitor at {host}:{port}");
-                Console.WriteLine("Listening for HTTP requests... (Ctrl+C to stop)\n");
-                PrintNetworkTableHeader();
-            }
+                using var ws = new System.Net.WebSockets.ClientWebSocket();
+                await ws.ConnectAsync(new Uri(wsUrl), cts.Token);
 
-            int counter = 0;
-            var buffer = new byte[65536];
-            var sb = new StringBuilder();
-
-            while (!cts.Token.IsCancellationRequested && ws.State == System.Net.WebSockets.WebSocketState.Open)
-            {
-                System.Net.WebSockets.WebSocketReceiveResult result;
-                sb.Clear();
-                do
+                if (!json)
                 {
-                    result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token);
-                    if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) { cts.Cancel(); break; }
-                    sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
-                } while (!result.EndOfMessage);
-
-                if (cts.Token.IsCancellationRequested) break;
-
-                var msg = sb.ToString();
-                using var doc = JsonDocument.Parse(msg);
-                var type = doc.RootElement.GetProperty("type").GetString();
-
-                if (type == "replay" && doc.RootElement.TryGetProperty("entries", out var entries))
-                {
-                    foreach (var entry in entries.EnumerateArray())
+                    if (counter == 0)
                     {
-                        if (!MatchesFilter(entry, filterHost, filterMethod)) continue;
-                        counter++;
-                        if (json) PrintNetworkEntryJson(entry);
-                        else PrintNetworkEntryRow(counter, entry);
+                        Console.WriteLine($"Connected to network monitor at {host}:{port}");
+                        Console.WriteLine("Listening for HTTP requests... (Ctrl+C to stop)\n");
+                        PrintNetworkTableHeader();
+                    }
+                    else
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkGray;
+                        Console.WriteLine("  (reconnected)");
+                        Console.ResetColor();
                     }
                 }
-                else if (type == "request" && doc.RootElement.TryGetProperty("entry", out var reqEntry))
+
+                var buffer = new byte[65536];
+                var sb = new StringBuilder();
+
+                while (!cts.Token.IsCancellationRequested && ws.State == System.Net.WebSockets.WebSocketState.Open)
                 {
-                    if (!MatchesFilter(reqEntry, filterHost, filterMethod)) continue;
-                    counter++;
-                    if (counter > limit) continue;
-                    if (json) PrintNetworkEntryJson(reqEntry);
-                    else PrintNetworkEntryRow(counter, reqEntry);
+                    System.Net.WebSockets.WebSocketReceiveResult result;
+                    sb.Clear();
+                    do
+                    {
+                        result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token);
+                        if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) break;
+                        sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                    } while (!result.EndOfMessage);
+
+                    if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) break;
+                    if (cts.Token.IsCancellationRequested) break;
+
+                    var msg = sb.ToString();
+                    if (string.IsNullOrEmpty(msg)) continue;
+
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(msg);
+                        var type = doc.RootElement.GetProperty("type").GetString();
+
+                        if (type == "replay" && doc.RootElement.TryGetProperty("entries", out var entries))
+                        {
+                            foreach (var entry in entries.EnumerateArray())
+                            {
+                                if (!MatchesFilter(entry, filterHost, filterMethod)) continue;
+                                counter++;
+                                if (json) PrintNetworkEntryJson(entry);
+                                else PrintNetworkEntryRow(counter, entry);
+                            }
+                        }
+                        else if (type == "request" && doc.RootElement.TryGetProperty("entry", out var reqEntry))
+                        {
+                            if (!MatchesFilter(reqEntry, filterHost, filterMethod)) continue;
+                            counter++;
+                            if (counter > limit) continue;
+                            if (json) PrintNetworkEntryJson(reqEntry);
+                            else PrintNetworkEntryRow(counter, reqEntry);
+                        }
+                    }
+                    catch (JsonException) { }
                 }
             }
-
-            if (!json) Console.WriteLine($"\n{counter} requests captured.");
+            catch (OperationCanceledException) { break; }
+            catch (System.Net.WebSockets.WebSocketException)
+            {
+                if (cts.Token.IsCancellationRequested) break;
+                // Reconnect after a brief delay
+                try { await Task.Delay(1000, cts.Token); }
+                catch { break; }
+            }
+            catch (Exception ex)
+            {
+                if (cts.Token.IsCancellationRequested) break;
+                WriteError(ex.Message);
+                try { await Task.Delay(2000, cts.Token); }
+                catch { break; }
+            }
         }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { WriteError(ex.Message); }
+
+        if (!json && counter > 0) Console.WriteLine($"\n{counter} requests captured.");
     }
 
     private static async Task MauiNetworkListAsync(string host, int port, bool json, int limit, string? filterHost, string? filterMethod)

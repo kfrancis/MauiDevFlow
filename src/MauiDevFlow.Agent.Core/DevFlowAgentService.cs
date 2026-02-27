@@ -1024,7 +1024,7 @@ public class DevFlowAgentService : IDisposable
                 while (!cts.Token.IsCancellationRequested)
                 {
                     var msg = await AgentHttpServer.WebSocketReadTextAsync(stream, cts.Token);
-                    if (msg == null) { cts.Cancel(); break; }
+                    if (msg == null) { await cts.CancelAsync(); break; }
 
                     try
                     {
@@ -1047,7 +1047,8 @@ public class DevFlowAgentService : IDisposable
                 }
             }, cts.Token);
 
-            // Send loop — drain queue periodically
+            // Send loop — drain queue and send pings periodically
+            var lastPing = DateTime.UtcNow;
             while (!cts.Token.IsCancellationRequested)
             {
                 while (sendQueue.TryDequeue(out var entry))
@@ -1057,7 +1058,18 @@ public class DevFlowAgentService : IDisposable
                         var json = JsonSerializer.Serialize(new { type = "request", entry = entry.ToSummary() });
                         await AgentHttpServer.WebSocketSendTextAsync(stream, json, cts.Token);
                     }
-                    catch { cts.Cancel(); break; }
+                    catch { await cts.CancelAsync(); break; }
+                }
+
+                // Send WebSocket ping every 15 seconds to keep connection alive
+                if ((DateTime.UtcNow - lastPing).TotalSeconds >= 15)
+                {
+                    try
+                    {
+                        await AgentHttpServer.WebSocketSendPingAsync(stream, cts.Token);
+                        lastPing = DateTime.UtcNow;
+                    }
+                    catch { await cts.CancelAsync(); break; }
                 }
 
                 try { await Task.Delay(50, cts.Token); }
