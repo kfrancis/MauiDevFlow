@@ -183,6 +183,7 @@ public class BrokerServer : IDisposable
                 Platform = registration.Platform,
                 AppName = registration.AppName,
                 Port = assignedPort,
+                Version = registration.Version,
                 ConnectedAt = DateTime.UtcNow
             };
 
@@ -407,6 +408,9 @@ public class BrokerServer : IDisposable
 
         [System.Text.Json.Serialization.JsonPropertyName("currentPort")]
         public int? CurrentPort { get; init; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("version")]
+        public string? Version { get; init; }
     }
 
     private record AgentConnection(AgentRegistration Registration, WebSocket WebSocket);

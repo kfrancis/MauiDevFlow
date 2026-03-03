@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -200,7 +201,9 @@ public class BrokerRegistration : IDisposable
         tfm = _tfm,
         platform = _platform,
         appName = _appName,
-        currentPort = CurrentPort
+        currentPort = CurrentPort,
+        version = typeof(BrokerRegistration).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
     });
 
     private record RegistrationResponse

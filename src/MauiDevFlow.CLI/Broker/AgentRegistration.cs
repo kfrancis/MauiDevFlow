@@ -28,6 +28,9 @@ public record AgentRegistration
     [JsonPropertyName("port")]
     public int Port { get; init; }
 
+    [JsonPropertyName("version")]
+    public string? Version { get; init; }
+
     [JsonPropertyName("connectedAt")]
     public DateTime ConnectedAt { get; init; } = DateTime.UtcNow;
 

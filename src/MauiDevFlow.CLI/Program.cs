@@ -2249,15 +2249,19 @@ class Program
             return;
         }
 
-        Console.WriteLine($"{"ID",-14} {"App",-20} {"Platform",-14} {"TFM",-24} {"Port",-6} {"Uptime"}");
-        Console.WriteLine(new string('-', 90));
+        Console.WriteLine($"{"ID",-14} {"App",-20} {"Platform",-14} {"TFM",-24} {"Port",-6} {"Version",-12} {"Uptime"}");
+        Console.WriteLine(new string('-', 102));
         foreach (var a in agents)
         {
             var uptime = DateTime.UtcNow - a.ConnectedAt;
             var uptimeStr = uptime.TotalHours >= 1
                 ? $"{uptime.Hours}h {uptime.Minutes}m"
                 : $"{uptime.Minutes}m {uptime.Seconds}s";
-            Console.WriteLine($"{a.Id,-14} {a.AppName,-20} {a.Platform,-14} {a.Tfm,-24} {a.Port,-6} {uptimeStr}");
+            var version = a.Version ?? "-";
+            // Strip +commitHash suffix for display
+            var plusIdx = version.IndexOf('+');
+            if (plusIdx >= 0) version = version[..plusIdx];
+            Console.WriteLine($"{a.Id,-14} {a.AppName,-20} {a.Platform,-14} {a.Tfm,-24} {a.Port,-6} {version,-12} {uptimeStr}");
         }
     }
 
