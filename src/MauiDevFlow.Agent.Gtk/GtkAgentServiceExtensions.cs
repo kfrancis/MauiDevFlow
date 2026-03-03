@@ -75,6 +75,17 @@ public static class GtkAgentServiceExtensions
             builder.Logging.AddProvider(logProvider);
         }
 
+        if (options.EnableNetworkMonitoring)
+        {
+            var store = service.NetworkStore;
+            var maxBody = options.MaxNetworkBodySize;
+            builder.Services.AddSingleton(store);
+            builder.Services.ConfigureHttpClientDefaults(httpBuilder =>
+            {
+                httpBuilder.AddHttpMessageHandler(() => new MauiDevFlow.Agent.Core.Network.DevFlowHttpHandler(store, maxBody));
+            });
+        }
+
         // Auto-start agent when the first GTK window is created
         bool started = false;
         builder.ConfigureLifecycleEvents(lifecycle =>
