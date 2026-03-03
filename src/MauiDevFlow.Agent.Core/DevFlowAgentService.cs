@@ -581,13 +581,16 @@ public class DevFlowAgentService : IDisposable
         {
             Shadow shadow => FormatShadow(shadow),
             SolidColorBrush scb => $"SolidColorBrush Color={scb.Color?.ToArgbHex() ?? "(null)"}",
-            LinearGradientBrush lgb => $"LinearGradientBrush StartPoint={lgb.StartPoint}, EndPoint={lgb.EndPoint}, Stops={lgb.GradientStops?.Count ?? 0}",
-            RadialGradientBrush rgb => $"RadialGradientBrush Center={rgb.Center}, Radius={rgb.Radius}, Stops={rgb.GradientStops?.Count ?? 0}",
+            LinearGradientBrush lgb => $"LinearGradientBrush StartPoint={lgb.StartPoint}, EndPoint={lgb.EndPoint}, Stops=[{FormatGradientStops(lgb.GradientStops)}]",
+            RadialGradientBrush rgb => $"RadialGradientBrush Center={rgb.Center}, Radius={rgb.Radius}, Stops=[{FormatGradientStops(rgb.GradientStops)}]",
             Brush brush => brush.GetType().Name,
             Microsoft.Maui.Controls.Shapes.RoundRectangle rr => $"RoundRectangle CornerRadius={FormatPropertyValue(rr.CornerRadius)}",
             Microsoft.Maui.Controls.Shapes.Shape shape => shape.GetType().Name,
             ColumnDefinitionCollection cols => string.Join(", ", cols.Select(c => FormatGridLength(c.Width))),
             RowDefinitionCollection rows => string.Join(", ", rows.Select(r => FormatGridLength(r.Height))),
+            LayoutOptions lo => $"{lo.Alignment}{(lo.Expands ? ", Expands" : "")}",
+            LinearItemsLayout lin => $"LinearItemsLayout Orientation={lin.Orientation}, ItemSpacing={lin.ItemSpacing}",
+            GridItemsLayout grid => $"GridItemsLayout Span={grid.Span}, Orientation={grid.Orientation}, HorizontalSpacing={grid.HorizontalItemSpacing}, VerticalSpacing={grid.VerticalItemSpacing}",
             FileImageSource fis => $"File: {fis.File}",
             UriImageSource uis => $"Uri: {uis.Uri}",
             FontImageSource fontIs => $"Font: {fontIs.Glyph} ({fontIs.FontFamily})",
@@ -602,6 +605,13 @@ public class DevFlowAgentService : IDisposable
         ? (gl.Value == 1 ? "*" : $"{gl.Value}*")
         : gl.IsAbsolute ? gl.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
         : "Auto";
+
+    private static string FormatGradientStops(GradientStopCollection? stops)
+    {
+        if (stops == null || stops.Count == 0) return "";
+        return string.Join(", ", stops.Select(s =>
+            $"{s.Color.ToArgbHex()} {(s.Offset * 100).ToString("0", System.Globalization.CultureInfo.InvariantCulture)}%"));
+    }
 
     private static string FormatShadow(Shadow shadow)
     {
