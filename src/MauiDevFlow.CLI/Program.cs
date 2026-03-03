@@ -504,11 +504,8 @@ class Program
         var versionCmd = new Command("version", "Show CLI version information");
         versionCmd.SetHandler(() =>
         {
-            var asm = typeof(Program).Assembly;
-            var infoVersion = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
-            // Strip the +commitHash suffix if present (e.g. "0.13.0+abc123" → "0.13.0")
-            var plusIdx = infoVersion.IndexOf('+');
-            var version = plusIdx >= 0 ? infoVersion[..plusIdx] : infoVersion;
+            var version = typeof(Program).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
             Console.WriteLine($"maui-devflow {version}");
         });
         rootCommand.Add(versionCmd);
@@ -2258,9 +2255,6 @@ class Program
                 ? $"{uptime.Hours}h {uptime.Minutes}m"
                 : $"{uptime.Minutes}m {uptime.Seconds}s";
             var version = a.Version ?? "-";
-            // Strip +commitHash suffix for display
-            var plusIdx = version.IndexOf('+');
-            if (plusIdx >= 0) version = version[..plusIdx];
             Console.WriteLine($"{a.Id,-14} {a.AppName,-20} {a.Platform,-14} {a.Tfm,-24} {a.Port,-6} {version,-12} {uptimeStr}");
         }
     }
