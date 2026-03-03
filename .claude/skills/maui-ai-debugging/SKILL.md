@@ -341,6 +341,7 @@ by index, AutomationId, or element ID. Default: first WebView.
 | `cdp status` | CDP connection status and WebView count |
 | `cdp webviews [--json]` | List available CDP WebViews (index, AutomationId, ready status) |
 | `cdp snapshot` | Accessible DOM text (best for AI agents) |
+| `cdp source` | Get full page HTML source |
 | `cdp Browser getVersion` | Browser/WebView version info |
 | `cdp Runtime evaluate <expr>` | Evaluate JavaScript |
 | `cdp DOM getDocument` | Full DOM document |

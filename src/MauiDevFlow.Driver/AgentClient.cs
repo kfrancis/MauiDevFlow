@@ -185,6 +185,14 @@ public class AgentClient : IDisposable
         return await GetJsonAsync("/api/cdp/webviews");
     }
 
+    public async Task<string> GetCdpSourceAsync(string? webviewId = null)
+    {
+        var path = "/api/cdp/source";
+        if (!string.IsNullOrEmpty(webviewId))
+            path += $"?webview={Uri.EscapeDataString(webviewId)}";
+        return await _http.GetStringAsync($"{_baseUrl}{path}");
+    }
+
     private async Task<T?> GetAsync<T>(string path) where T : class
     {
         try

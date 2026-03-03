@@ -144,6 +144,10 @@ class Program
         webviewsCmd.Add(webviewsJsonOption);
         webviewsCmd.SetHandler(async (host, port, json) => await CdpWebViewsAsync(host, port, json), agentHostOption, agentPortOption, webviewsJsonOption);
         cdpCommand.Add(webviewsCmd);
+
+        var sourceCmd = new Command("source", "Get page HTML source from a WebView");
+        sourceCmd.SetHandler(async (host, port, wv) => await CdpSourceAsync(host, port, wv), agentHostOption, agentPortOption, webviewOption);
+        cdpCommand.Add(sourceCmd);
         
         rootCommand.Add(cdpCommand);
         
@@ -823,6 +827,32 @@ class Program
         }
     }
     
+    private static async Task CdpSourceAsync(string host, int port, string? webview = null)
+    {
+        try
+        {
+            using var http = new HttpClient();
+            http.Timeout = TimeSpan.FromSeconds(10);
+            var url = $"http://{host}:{port}/api/cdp/source";
+            if (!string.IsNullOrEmpty(webview))
+                url += $"?webview={Uri.EscapeDataString(webview)}";
+            var response = await http.GetAsync(url);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                WriteError($"Failed to get page source: {body}");
+                return;
+            }
+
+            Console.WriteLine(body);
+        }
+        catch (Exception ex)
+        {
+            WriteError($"Failed to get page source: {ex.Message}");
+        }
+    }
+
     private static async Task SnapshotAsync(string host, int port, string? webview = null)
     {
         try

@@ -212,6 +212,10 @@ maui-devflow cdp Page navigate "https://example.com"
 maui-devflow cdp Page reload
 maui-devflow cdp Page captureScreenshot
 
+# Get full page HTML source
+maui-devflow cdp source
+maui-devflow cdp source --webview BlazorLeft
+
 # Live CSS/DOM editing (experiment without rebuilding)
 maui-devflow cdp Runtime evaluate "document.querySelector('h1').style.color = 'tomato'"
 maui-devflow cdp Runtime evaluate "document.querySelectorAll('.item').forEach(el => el.style.borderRadius = '20px')"
@@ -275,6 +279,7 @@ auto-assigned by the broker (range 10223–10899), or configurable via `.mauidev
 | `/ws/network` | WS | WebSocket stream of HTTP requests (replay + live) |
 | `/api/cdp` | POST | Forward CDP command to Blazor WebView. Use `?webview=<id>` to target a specific WebView |
 | `/api/cdp/webviews` | GET | List registered CDP WebViews (index, AutomationId, elementId, ready status) |
+| `/api/cdp/source` | GET | Get page HTML source. Use `?webview=<id>` to target a specific WebView |
 
 ## Project Structure
 

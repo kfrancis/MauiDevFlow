@@ -252,6 +252,7 @@ public class DevFlowAgentService : IDisposable
         _server.MapGet("/api/logs", HandleLogs);
         _server.MapPost("/api/cdp", HandleCdp);
         _server.MapGet("/api/cdp/webviews", HandleCdpWebViews);
+        _server.MapGet("/api/cdp/source", HandleCdpSource);
 
         // Network monitoring
         _server.MapGet("/api/network", HandleNetworkList);
@@ -1339,6 +1340,52 @@ public class DevFlowAgentService : IDisposable
         }).ToList();
 
         return Task.FromResult(HttpResponse.Json(new { webviews }));
+    }
+
+    private async Task<HttpResponse> HandleCdpSource(HttpRequest request)
+    {
+        if (_cdpWebViews.Count == 0)
+            return HttpResponse.Error("CDP not available (no Blazor WebViews registered)");
+
+        request.QueryParams.TryGetValue("webview", out var webviewId);
+        var webView = ResolveCdpWebView(webviewId);
+
+        if (webView == null)
+            return HttpResponse.Error($"WebView '{webviewId}' not found. Use GET /api/cdp/webviews to list available WebViews.");
+
+        if (!webView.IsReady)
+            return HttpResponse.Error($"CDP not ready on WebView {webView.Index} (WebView not initialized)");
+
+        try
+        {
+            var cdpCommand = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                id = 99999,
+                method = "Runtime.evaluate",
+                @params = new { expression = "document.documentElement.outerHTML", returnByValue = true }
+            });
+
+            var resultJson = await webView.CommandHandler(cdpCommand);
+            using var doc = System.Text.Json.JsonDocument.Parse(resultJson);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("result", out var result) &&
+                result.TryGetProperty("result", out var innerResult) &&
+                innerResult.TryGetProperty("value", out var value))
+            {
+                return new HttpResponse
+                {
+                    ContentType = "text/html",
+                    Body = value.GetString() ?? ""
+                };
+            }
+
+            return HttpResponse.Error("Failed to extract page source from CDP response");
+        }
+        catch (Exception ex)
+        {
+            return HttpResponse.Error($"Failed to get page source: {ex.Message}");
+        }
     }
 }
 
