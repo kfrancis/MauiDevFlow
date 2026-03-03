@@ -27,10 +27,12 @@ public static partial class MauiProgram
 
 		// Shared data
 		builder.Services.AddSingleton<TodoService>();
+		builder.Services.AddHttpClient();
 
 		// Pages (DI-resolved by Shell's DataTemplate)
 		builder.Services.AddTransient<MainPage>();
 		builder.Services.AddTransient<BlazorTodoPage>();
+		builder.Services.AddTransient<NetworkTestPage>();
 
 #if DEBUG
 		builder.Logging.AddDebug();
