@@ -283,7 +283,8 @@ public class DevFlowAgentService : IDisposable
             return new
             {
                 agent = "MauiDevFlow.Agent",
-                version = "1.0.0",
+                version = typeof(DevFlowAgentService).Assembly
+                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown",
                 platform = PlatformName,
                 deviceType = DeviceTypeName,
                 idiom = IdiomName,

@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Builder;
 using System.CommandLine.Parsing;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 
@@ -498,6 +499,19 @@ class Program
             await BatchAsync(host, port, delay, continueOnError, human),
             agentHostOption, agentPortOption, batchDelayOption, batchContinueOption, batchHumanOption);
         rootCommand.Add(batchCommand);
+
+        // ===== version command =====
+        var versionCmd = new Command("version", "Show CLI version information");
+        versionCmd.SetHandler(() =>
+        {
+            var asm = typeof(Program).Assembly;
+            var infoVersion = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
+            // Strip the +commitHash suffix if present (e.g. "0.13.0+abc123" → "0.13.0")
+            var plusIdx = infoVersion.IndexOf('+');
+            var version = plusIdx >= 0 ? infoVersion[..plusIdx] : infoVersion;
+            Console.WriteLine($"maui-devflow {version}");
+        });
+        rootCommand.Add(versionCmd);
 
         _parser = new CommandLineBuilder(rootCommand)
             .UseDefaults()
