@@ -44,7 +44,9 @@ public sealed partial class NetworkRow
 }
 
 /// <summary>
-/// Full-screen TUI for monitoring network requests using XenoAtom.Terminal.UI.
+/// Full-screen split-pane TUI for monitoring network requests.
+/// Left pane: request list (DataGrid). Right pane: request details.
+/// Details update automatically when the selected row changes.
 /// </summary>
 public static class NetworkMonitorTui
 {
@@ -52,13 +54,13 @@ public static class NetworkMonitorTui
     {
         var wsUrl = $"ws://{host}:{port}/ws/network";
         var status = new State<string>("Connecting...");
-        var detailText = new State<string>("");
-        var showDetail = new State<bool>(false);
-        var selectedId = new State<string?>("");
-        var requestCount = new State<int>(0);
+        var detailText = new State<string>("Select a request to view details.");
+        var headerText = new State<string>($"🌐 Network Monitor — {host}:{port}  [0 requests]");
 
-        // Track rows for detail lookups
         var rows = new List<NetworkRow>();
+        int lastLoadedRow = -1;
+        string? lastLoadedId = null;
+        CancellationTokenSource? detailCts = null;
 
         // DataGrid document
         var doc = new DataGridListDocument<NetworkRow>();
@@ -70,7 +72,6 @@ public static class NetworkMonitorTui
             doc.AddColumn(new DataGridColumnInfo<int>("statusCode", "Status", ReadOnly: true, NetworkRow.Accessor.StatusCode));
             doc.AddColumn(new DataGridColumnInfo<string>("duration", "Duration", ReadOnly: true, NetworkRow.Accessor.Duration));
             doc.AddColumn(new DataGridColumnInfo<string>("size", "Size", ReadOnly: true, NetworkRow.Accessor.Size));
-            doc.AddColumn(new DataGridColumnInfo<string>("contentType", "Content-Type", ReadOnly: true, NetworkRow.Accessor.ContentType));
         }
 
         using var view = new DataGridDocumentView(doc);
@@ -80,6 +81,7 @@ public static class NetworkMonitorTui
             .ShowRowAnchor(true)
             .RowAnchorWidth(1)
             .ReadOnly(true)
+            .EditMode(DataGridEditMode.OnTyping)
             .SelectionMode(DataGridSelectionMode.Row)
             .FrozenColumns(0)
             .HorizontalAlignment(Align.Stretch)
@@ -125,195 +127,171 @@ public static class NetworkMonitorTui
             Width = GridLength.Fixed(10),
             CellAlignment = TextAlignment.Right,
         });
-        grid.Columns.Add(new DataGridColumn<string>
-        {
-            Key = "contentType",
-            TypedValueAccessor = NetworkRow.Accessor.ContentType,
-            Width = GridLength.Fixed(20),
-        });
 
-        // Detail view
+        // Detail pane
         var detailArea = new TextArea(detailText)
             .HorizontalAlignment(Align.Stretch)
             .VerticalAlignment(Align.Stretch);
 
         // Header
-        var header = new HStack(
-            new TextBlock(() => $"🌐 Network Monitor — {host}:{port}") { Wrap = false },
-            new TextBlock(() => $"  [{requestCount.Value} requests]") { Wrap = false }
-        ).Spacing(0).HorizontalAlignment(Align.Stretch);
+        var header = new TextBlock(headerText) { Wrap = false };
 
-        // Footer with key hints
+        // Footer
         var footer = new Footer
         {
-            Left = new TextBlock(() => status.Value),
-            Right = new Markup("[dim]Enter[/]: Details  [dim]Esc[/]: Back  [dim]Ctrl+Q[/]: Quit") { Wrap = false },
+            Left = new TextBlock(status),
+            Right = new Markup("[dim]↑↓[/]: Navigate  [dim]Ctrl+Q[/]: Quit") { Wrap = false },
         };
 
-        // Main layout: grid view and detail view, swapped via showDetail state
-        var mainContent = new ComputedVisual(() =>
-        {
-            if (showDetail.Value)
-            {
-                return new VStack(
-                    new HStack(
-                        new Markup("[bold]Request Details[/]") { Wrap = false },
-                        new TextBlock(() => $"  {selectedId.Value}") { Wrap = false }
-                    ).Spacing(0),
-                    new Rule(),
-                    new ScrollViewer(detailArea)
-                        .HorizontalAlignment(Align.Stretch)
-                        .VerticalAlignment(Align.Stretch)
-                ).Spacing(0).HorizontalAlignment(Align.Stretch).VerticalAlignment(Align.Stretch);
-            }
-
-            return new ScrollViewer(grid)
-                .HorizontalAlignment(Align.Stretch)
-                .VerticalAlignment(Align.Stretch);
-        });
+        // Split pane: grid on left, details on right
+        var splitter = new HSplitter(
+            grid,
+            new VStack(
+                new Markup("[bold]Details[/]") { Wrap = false },
+                new Rule(),
+                new ScrollViewer(detailArea)
+                    .HorizontalAlignment(Align.Stretch)
+                    .VerticalAlignment(Align.Stretch)
+            ).Spacing(0).HorizontalAlignment(Align.Stretch).VerticalAlignment(Align.Stretch)
+        ).Ratio(0.55).MinFirst(30).MinSecond(25).BarSize(1)
+            .HorizontalAlignment(Align.Stretch)
+            .VerticalAlignment(Align.Stretch);
 
         var root = new DockLayout()
             .HorizontalAlignment(Align.Stretch)
             .VerticalAlignment(Align.Stretch)
             .Top(new VStack(header, new Rule()).Spacing(0))
-            .Content(mainContent)
+            .Content(splitter)
             .Bottom(footer);
 
         TerminalApp? app = null;
 
-        // Handle Enter key on grid to show details
-        grid.KeyDown((_, e) =>
+        void CheckSelectionChanged()
         {
-            if (e.Key == TerminalKey.Enter && app != null)
-            {
-                _ = LoadDetailAsync(host, port, rows, grid, selectedId, detailText, showDetail, status, app);
-                e.Handled = true;
-            }
-        });
+            if (app == null) return;
+            var row = grid.CurrentCell.Row;
+            if (row < 0 || row >= rows.Count) return;
+            var id = rows[row].Id;
+            if (string.IsNullOrEmpty(id)) return;
+            if (row == lastLoadedRow && id == lastLoadedId) return;
 
-        // Handle Escape to go back from detail view - attach to root
-        root.KeyDown((_, e) =>
-        {
-            if (e.Key == TerminalKey.Escape && showDetail.Value)
+            lastLoadedRow = row;
+            lastLoadedId = id;
+
+            var r = rows[row];
+            var summary = new StringBuilder();
+            summary.AppendLine($"Method:      {r.Method}");
+            summary.AppendLine($"URL:         {r.Url}");
+            summary.AppendLine($"Status:      {(r.StatusCode > 0 ? r.StatusCode.ToString() : "---")}");
+            summary.AppendLine($"Duration:    {r.Duration}");
+            summary.AppendLine($"Size:        {r.Size}");
+            if (!string.IsNullOrEmpty(r.Error))
+                summary.AppendLine($"Error:       {r.Error}");
+            summary.AppendLine();
+            summary.AppendLine("Loading full details...");
+            detailText.Value = summary.ToString();
+
+            detailCts?.Cancel();
+            var cts = new CancellationTokenSource();
+            detailCts = cts;
+
+            var currentApp = app;
+            Task.Run(async () =>
             {
-                showDetail.Value = false;
-                status.Value = "Listening...";
-                e.Handled = true;
-            }
-        });
+                try
+                {
+                    await LoadDetailAsync(host, port, id, detailText, status, currentApp, cts.Token);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    currentApp.Post(() => status.Value = $"Error: {ex.Message}");
+                }
+            });
+        }
+
+        grid.KeyDown((_, _) => CheckSelectionChanged());
+        grid.PointerPressedRouted += (_, _) => CheckSelectionChanged();
 
         using var session = Terminal.Open();
         app = new TerminalApp(root, session.Instance);
         await using (app)
         {
-            // Start WebSocket connection in background (after TerminalApp so dispatcher is active)
             var cts = new CancellationTokenSource();
-            var wsTask = Task.Run(() => WebSocketLoop(wsUrl, doc, rows, filterHost, filterMethod, requestCount, status, app, cts.Token));
+            var wsTask = Task.Run(() => WebSocketLoop(wsUrl, doc, rows, filterHost, filterMethod, host, port, headerText, status, app, cts.Token));
 
             app.Run(cts.Token);
 
             cts.Cancel();
+            detailCts?.Cancel();
             try { await wsTask; } catch { }
         }
     }
 
     private static async Task LoadDetailAsync(
         string host, int port,
-        List<NetworkRow> rows,
-        DataGridControl grid,
-        State<string?> selectedId,
+        string id,
         State<string> detailText,
-        State<bool> showDetail,
         State<string> status,
-        TerminalApp app)
+        TerminalApp app,
+        CancellationToken ct)
     {
-        var currentRow = grid.CurrentCell.Row;
-        if (currentRow < 0 || currentRow >= rows.Count) return;
+        using var client = new MauiDevFlow.Driver.AgentClient(host, port);
+        var detail = await client.GetNetworkRequestDetailAsync(id);
+        ct.ThrowIfCancellationRequested();
 
-        var row = rows[currentRow];
-        var id = row.Id;
-        selectedId.Value = id;
-        status.Value = $"Loading details for {id}...";
-
-        try
+        if (detail == null)
         {
-            using var client = new MauiDevFlow.Driver.AgentClient(host, port);
-            var detail = await client.GetNetworkRequestDetailAsync(id);
-            if (detail == null)
-            {
-                app.Post(() =>
-                {
-                    detailText.Value = "Request not found.";
-                    showDetail.Value = true;
-                });
-                return;
-            }
+            app.Post(() => detailText.Value = "Request not found.");
+            return;
+        }
 
-            var sb = new StringBuilder();
-            sb.AppendLine($"ID:          {detail.Id}");
-            sb.AppendLine($"Timestamp:   {detail.Timestamp}");
-            sb.AppendLine($"Method:      {detail.Method}");
-            sb.AppendLine($"URL:         {detail.Url}");
+        var sb = new StringBuilder();
+        sb.AppendLine($"ID:          {detail.Id}");
+        sb.AppendLine($"Timestamp:   {detail.Timestamp}");
+        sb.AppendLine($"Method:      {detail.Method}");
+        sb.AppendLine($"URL:         {detail.Url}");
 
-            if (!string.IsNullOrEmpty(detail.Error))
-            {
-                sb.AppendLine($"Error:       {detail.Error}");
-            }
-            else
-            {
-                sb.AppendLine($"Status:      {detail.StatusCode} {detail.StatusText}");
-            }
+        if (!string.IsNullOrEmpty(detail.Error))
+            sb.AppendLine($"Error:       {detail.Error}");
+        else
+            sb.AppendLine($"Status:      {detail.StatusCode} {detail.StatusText}");
 
-            sb.AppendLine($"Duration:    {detail.DurationMs}ms");
+        sb.AppendLine($"Duration:    {detail.DurationMs}ms");
+        sb.AppendLine();
+
+        if (detail.RequestHeaders is { Count: > 0 })
+        {
+            sb.AppendLine("── Request Headers ──");
+            foreach (var h in detail.RequestHeaders)
+                sb.AppendLine($"  {h.Key}: {string.Join(", ", h.Value)}");
             sb.AppendLine();
-
-            if (detail.RequestHeaders is { Count: > 0 })
-            {
-                sb.AppendLine("── Request Headers ──");
-                foreach (var h in detail.RequestHeaders)
-                    sb.AppendLine($"  {h.Key}: {string.Join(", ", h.Value)}");
-                sb.AppendLine();
-            }
-
-            if (!string.IsNullOrEmpty(detail.RequestBody))
-            {
-                sb.AppendLine($"── Request Body ({detail.RequestSize} bytes){(detail.RequestBodyTruncated ? " [truncated]" : "")} ──");
-                sb.AppendLine(TryFormatJson(detail.RequestBody));
-                sb.AppendLine();
-            }
-
-            if (detail.ResponseHeaders is { Count: > 0 })
-            {
-                sb.AppendLine("── Response Headers ──");
-                foreach (var h in detail.ResponseHeaders)
-                    sb.AppendLine($"  {h.Key}: {string.Join(", ", h.Value)}");
-                sb.AppendLine();
-            }
-
-            if (!string.IsNullOrEmpty(detail.ResponseBody))
-            {
-                sb.AppendLine($"── Response Body ({detail.ResponseSize} bytes){(detail.ResponseBodyTruncated ? " [truncated]" : "")} ──");
-                sb.AppendLine(TryFormatJson(detail.ResponseBody));
-            }
-
-            var text = sb.ToString();
-            var statusMsg = $"Viewing: {detail.Method} {detail.Url}";
-            app.Post(() =>
-            {
-                detailText.Value = text;
-                showDetail.Value = true;
-                status.Value = statusMsg;
-            });
         }
-        catch (Exception ex)
+
+        if (!string.IsNullOrEmpty(detail.RequestBody))
         {
-            var errorMsg = ex.Message;
-            app.Post(() =>
-            {
-                detailText.Value = $"Error loading details: {errorMsg}";
-                showDetail.Value = true;
-            });
+            sb.AppendLine($"── Request Body ({detail.RequestSize} bytes){(detail.RequestBodyTruncated ? " [truncated]" : "")} ──");
+            sb.AppendLine(TryFormatJson(detail.RequestBody));
+            sb.AppendLine();
         }
+
+        if (detail.ResponseHeaders is { Count: > 0 })
+        {
+            sb.AppendLine("── Response Headers ──");
+            foreach (var h in detail.ResponseHeaders)
+                sb.AppendLine($"  {h.Key}: {string.Join(", ", h.Value)}");
+            sb.AppendLine();
+        }
+
+        if (!string.IsNullOrEmpty(detail.ResponseBody))
+        {
+            sb.AppendLine($"── Response Body ({detail.ResponseSize} bytes){(detail.ResponseBodyTruncated ? " [truncated]" : "")} ──");
+            sb.AppendLine(TryFormatJson(detail.ResponseBody));
+        }
+
+        ct.ThrowIfCancellationRequested();
+        var text = sb.ToString();
+        app.Post(() => detailText.Value = text);
     }
 
     private static string TryFormatJson(string text)
@@ -332,12 +310,16 @@ public static class NetworkMonitorTui
         List<NetworkRow> rows,
         string? filterHost,
         string? filterMethod,
-        State<int> requestCount,
+        string agentHost,
+        int agentPort,
+        State<string> headerText,
         State<string> status,
         TerminalApp app,
         CancellationToken ct)
     {
         int counter = 0;
+
+        void UpdateHeader() => headerText.Value = $"🌐 Network Monitor — {agentHost}:{agentPort}  [{rows.Count} requests]";
 
         while (!ct.IsCancellationRequested)
         {
@@ -380,15 +362,17 @@ public static class NetworkMonitorTui
                                 counter++;
                                 newRows.Add(CreateRow(counter, entry));
                             }
-                            var c = counter;
                             app.Post(() =>
                             {
-                                foreach (var r in newRows)
+                                using (doc.BeginUpdate())
                                 {
-                                    doc.AddRow(r);
-                                    rows.Add(r);
+                                    foreach (var r in newRows)
+                                    {
+                                        doc.AddRow(r);
+                                        rows.Add(r);
+                                    }
                                 }
-                                requestCount.Value = c;
+                                UpdateHeader();
                             });
                         }
                         else if (type == "request" && jsonDoc.RootElement.TryGetProperty("entry", out var reqEntry))
@@ -398,11 +382,12 @@ public static class NetworkMonitorTui
                             var row = CreateRow(counter, reqEntry);
                             app.Post(() =>
                             {
-                                doc.InsertRow(0, row);
-                                rows.Insert(0, row);
-                                for (int i = 0; i < rows.Count; i++)
-                                    rows[i].Index = rows.Count - i;
-                                requestCount.Value = rows.Count;
+                                using (doc.BeginUpdate())
+                                {
+                                    doc.InsertRow(0, row);
+                                    rows.Insert(0, row);
+                                }
+                                UpdateHeader();
                             });
                         }
                     }
