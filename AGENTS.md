@@ -19,7 +19,8 @@ MauiDevFlow is a toolkit for AI-assisted .NET MAUI app development. It provides:
 ```
 CLI (dotnet global tool) ──HTTP──▶ Agent (runs inside MAUI app, single port)
                                      ├── /api/tree, /api/screenshot, /api/logs, etc.
-                                     └── /api/cdp ──EvalJS──▶ Chobitsu (in BlazorWebView)
+                                     ├── /api/cdp?webview=<id> ──EvalJS──▶ Chobitsu (per WebView)
+                                     └── /api/cdp/webviews ──▶ List registered WebViews
 
 Agent architecture:
   Agent.Core (net10.0) ← platform-agnostic HTTP server, tree walker, logging
@@ -29,6 +30,7 @@ Agent architecture:
 
 - **Single port** (default 9223, configurable via `.mauidevflow` file) serves both native MAUI commands, CDP, and WebSocket connections
 - **WebSocket support** — `/ws/network` streams captured HTTP requests in real-time; CDP still uses HTTP POST via Chobitsu
+- **Multi-WebView CDP** — Each `BlazorWebView` registers independently with the agent. CDP commands accept `?webview=<id>` to target by index, AutomationId, or element ID. The `BlazorWebViewDebugServiceBase` manages per-WebView state via inner `WebViewBridge` instances
 - **Blazor→Agent wiring** uses reflection to avoid a direct package dependency between the two NuGet packages
 
 ## Building & Testing
