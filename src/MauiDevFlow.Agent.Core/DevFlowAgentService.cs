@@ -327,8 +327,14 @@ public class DevFlowAgentService : IDisposable
         var element = await DispatchAsync(() =>
         {
             var el = _treeWalker.GetElementById(id, _app);
-            if (el is not IVisualTreeElement vte) return null;
-            return _treeWalker.WalkElement(vte, null, 1, 2);
+            if (el is IVisualTreeElement vte)
+                return (object?)_treeWalker.WalkElement(vte, null, 1, 2);
+
+            // Synthetic elements: build detail from marker
+            if (el != null)
+                return (object?)_treeWalker.BuildSyntheticElementInfo(id, el);
+
+            return null;
         });
 
         return element != null ? HttpResponse.Json(element) : HttpResponse.NotFound($"Element '{id}' not found");
@@ -379,14 +385,22 @@ public class DevFlowAgentService : IDisposable
             var window = GetWindow(windowIndex);
             if (window == null) return (object?)null;
 
-            // Ensure tree is walked so element IDs are assigned
+            // Ensure tree is walked so element IDs are assigned and synthetic bounds are populated
             _treeWalker.WalkTree(_app!, 0, windowIndex);
+
+            // Build active Shell context to filter out inactive ShellItem subtrees
+            var activeShellItemIds = BuildActiveShellItemIds(window);
 
             var hits = VisualTreeElementExtensions.GetVisualTreeElements(window, x, y);
             var elements = new List<object>();
             foreach (var hit in hits)
             {
                 if (hit is not IVisualTreeElement vte) continue;
+
+                // Skip elements under inactive ShellItem subtrees
+                if (activeShellItemIds != null && IsUnderInactiveShellItem(hit, activeShellItemIds))
+                    continue;
+
                 var id = _treeWalker.GetIdForElement(vte);
                 if (id == null) continue;
 
@@ -406,12 +420,61 @@ public class DevFlowAgentService : IDisposable
                 else if (hit is Button b) info["text"] = b.Text;
                 elements.Add(info);
             }
+
+            // Also check synthetic elements for coordinate matches
+            var syntheticHits = _treeWalker.HitTestSynthetics(x, y);
+            foreach (var (synId, marker, bounds) in syntheticHits)
+            {
+                var synInfo = new Dictionary<string, object?>
+                {
+                    ["id"] = synId,
+                    ["type"] = _treeWalker.GetSyntheticTypeName(marker),
+                    ["bounds"] = bounds,
+                    ["synthetic"] = true,
+                };
+                var text = _treeWalker.GetSyntheticText(marker);
+                if (text != null) synInfo["text"] = text;
+                elements.Add(synInfo);
+            }
+
             return (object?)new { x, y, window = windowIndex ?? 0, elements };
         });
 
         return result != null
             ? HttpResponse.Json(result)
             : HttpResponse.Error($"Window {windowIndex ?? 0} not found");
+    }
+
+    /// <summary>
+    /// Builds a set of active ShellItem objects for filtering hit test results.
+    /// Returns null if the window doesn't contain a Shell (no filtering needed).
+    /// </summary>
+    private static HashSet<object>? BuildActiveShellItemIds(Window window)
+    {
+        var shell = window.Page as Shell;
+        if (shell == null) return null;
+
+        var currentItem = shell.CurrentItem;
+        if (currentItem == null) return null;
+
+        // Only the current ShellItem is active
+        return new HashSet<object>(ReferenceEqualityComparer.Instance) { currentItem };
+    }
+
+    /// <summary>
+    /// Checks if an element is under an inactive ShellItem subtree.
+    /// Walks up the parent chain to find the containing ShellItem.
+    /// </summary>
+    private static bool IsUnderInactiveShellItem(object element, HashSet<object> activeShellItems)
+    {
+        var current = element as Element;
+        while (current != null)
+        {
+            if (current is ShellItem si)
+                return !activeShellItems.Contains(si);
+            current = current.Parent;
+        }
+        return false;
     }
 
     protected virtual async Task<HttpResponse> HandleScreenshot(HttpRequest request)

@@ -16,6 +16,7 @@ public class VisualTreeWalker
     private readonly ConcurrentDictionary<string, WeakReference<IVisualTreeElement>> _elementMap = new();
     private readonly ConcurrentDictionary<IVisualTreeElement, string> _reverseMap = new(ReferenceEqualityComparer.Instance);
     private readonly ConcurrentDictionary<string, WeakReference<object>> _objectMap = new();
+    private readonly ConcurrentDictionary<string, BoundsInfo> _syntheticBounds = new();
 
     /// <summary>
     /// Marker object representing the navigation back button in Shell or NavigationPage.
@@ -73,11 +74,160 @@ public class VisualTreeWalker
     }
 
     /// <summary>
+    /// Hit tests synthetic elements against a point. Returns matching synthetics with their bounds.
+    /// </summary>
+    public List<(string Id, object Marker, BoundsInfo Bounds)> HitTestSynthetics(double x, double y)
+    {
+        var hits = new List<(string, object, BoundsInfo)>();
+        foreach (var kvp in _syntheticBounds)
+        {
+            var b = kvp.Value;
+            if (x >= b.X && x <= b.X + b.Width && y >= b.Y && y <= b.Y + b.Height)
+            {
+                if (_objectMap.TryGetValue(kvp.Key, out var objRef) && objRef.TryGetTarget(out var obj))
+                    hits.Add((kvp.Key, obj, b));
+            }
+        }
+        return hits;
+    }
+
+    /// <summary>
+    /// Gets the display type name for a synthetic marker object.
+    /// </summary>
+    public string GetSyntheticTypeName(object marker) => marker switch
+    {
+        NavBarTitleMarker => "NavBarTitle",
+        FlyoutButtonMarker => "FlyoutButton",
+        ShellFlyoutItemMarker => "FlyoutItem",
+        ShellTabMarker => "Tab",
+        SearchHandlerMarker => "SearchHandler",
+        FlyoutToggleMarker => "FlyoutToggle",
+        TabbedPageTabMarker => "Tab",
+        BackButtonMarker => "BackButton",
+        _ => marker.GetType().Name.Replace("Marker", "")
+    };
+
+    /// <summary>
+    /// Gets the display text for a synthetic marker object.
+    /// </summary>
+    public string? GetSyntheticText(object marker) => marker switch
+    {
+        NavBarTitleMarker m => m.Title,
+        FlyoutButtonMarker => "☰",
+        ShellFlyoutItemMarker m => m.Item is BaseShellItem bsi ? bsi.Title : null,
+        ShellTabMarker m => m.Section.Title,
+        SearchHandlerMarker m => m.Handler.Placeholder ?? "Search",
+        FlyoutToggleMarker => "☰",
+        TabbedPageTabMarker m => m.Page.Title,
+        BackButtonMarker m => m.Title,
+        _ => null
+    };
+
+    /// <summary>
+    /// Builds an ElementInfo for a synthetic marker element (for /api/element endpoint).
+    /// </summary>
+    public ElementInfo? BuildSyntheticElementInfo(string id, object marker)
+    {
+        var info = new ElementInfo
+        {
+            Id = id,
+            Type = GetSyntheticTypeName(marker),
+            FullType = $"MauiDevFlow.Agent.Core.{GetSyntheticTypeName(marker)}",
+            Text = GetSyntheticText(marker),
+            IsVisible = true,
+            IsEnabled = true,
+        };
+
+        // Set bounds if available
+        if (_syntheticBounds.TryGetValue(id, out var bounds))
+            info.Bounds = bounds;
+
+        // Enrich with MAUI properties
+        PopulateSyntheticProperties(info, marker);
+
+        // Platform-specific native info
+        PopulateSyntheticNativeInfo(info, marker);
+
+        return info;
+    }
+
+    /// <summary>
+    /// Populates MAUI-level properties on a synthetic element.
+    /// </summary>
+    private static void PopulateSyntheticProperties(ElementInfo info, object marker)
+    {
+        var props = new Dictionary<string, string?>();
+
+        switch (marker)
+        {
+            case NavBarTitleMarker m:
+                props["title"] = m.Title;
+                info.IsEnabled = false; // not interactive
+                break;
+            case FlyoutButtonMarker m:
+                props["flyoutBehavior"] = m.Shell.FlyoutBehavior.ToString();
+                props["flyoutIsPresented"] = m.Shell.FlyoutIsPresented.ToString();
+                break;
+            case ShellFlyoutItemMarker m when m.Item is BaseShellItem bsi:
+                props["title"] = bsi.Title;
+                props["route"] = bsi.Route;
+                props["flyoutItemIsVisible"] = bsi.FlyoutItemIsVisible.ToString();
+                if (bsi.AutomationId != null) info.AutomationId = bsi.AutomationId;
+                info.IsFocused = m.Shell.CurrentItem == m.Item;
+                if (bsi.Icon is FileImageSource fis1) props["icon"] = fis1.File;
+                if (bsi.FlyoutIcon is FileImageSource fis2) props["flyoutIcon"] = fis2.File;
+                break;
+            case ShellTabMarker m:
+                props["title"] = m.Section.Title;
+                props["route"] = m.Section.Route;
+                if (m.Section.AutomationId != null) info.AutomationId = m.Section.AutomationId;
+                info.IsFocused = m.Shell.CurrentItem?.CurrentItem == m.Section;
+                if (m.Section.Icon is FileImageSource fis3) props["icon"] = fis3.File;
+                break;
+            case SearchHandlerMarker m:
+                props["placeholder"] = m.Handler.Placeholder;
+                props["query"] = m.Handler.Query;
+                props["isSearchEnabled"] = m.Handler.IsSearchEnabled.ToString();
+                props["searchBoxVisibility"] = m.Handler.SearchBoxVisibility.ToString();
+                info.IsVisible = m.Handler.SearchBoxVisibility != SearchBoxVisibility.Hidden;
+                info.IsEnabled = m.Handler.IsSearchEnabled;
+                break;
+            case FlyoutToggleMarker m:
+                props["isPresented"] = m.FlyoutPage.IsPresented.ToString();
+                break;
+            case TabbedPageTabMarker m:
+                props["title"] = m.Page.Title;
+                if (m.Page.AutomationId != null) info.AutomationId = m.Page.AutomationId;
+                info.IsFocused = m.TabbedPage.CurrentPage == m.Page;
+                if (m.Page.IconImageSource is FileImageSource fis4) props["icon"] = fis4.File;
+                break;
+            case BackButtonMarker m:
+                props["title"] = m.Title;
+                break;
+        }
+
+        if (props.Count > 0)
+            info.NativeProperties = props;
+    }
+
+    /// <summary>
+    /// Override in platform-specific subclasses to add native view info to synthetic elements.
+    /// </summary>
+    protected virtual void PopulateSyntheticNativeInfo(ElementInfo info, object marker) { }
+
+    /// <summary>
+    /// Override in platform-specific subclasses to resolve bounds for synthetic elements
+    /// from platform-native views (UINavigationBar, UITabBar, Toolbar, etc.).
+    /// </summary>
+    protected virtual BoundsInfo? ResolveSyntheticBounds(object marker) => null;
+
+    /// <summary>
     /// Walks the visual tree starting from the application's windows.
     /// When windowIndex is null, walks all windows. Otherwise walks only the specified window.
     /// </summary>
     public List<ElementInfo> WalkTree(Application app, int maxDepth = 0, int? windowIndex = null)
     {
+        _syntheticBounds.Clear();
         var results = new List<ElementInfo>();
         if (app is not IVisualTreeElement appElement)
             return results;
@@ -335,7 +485,7 @@ public class VisualTreeWalker
         var marker = new NavBarTitleMarker { Title = title };
         var id = GetOrCreateObjectId(marker, $"NavBarTitle_{parentId}");
         parentInfo.Children ??= new List<ElementInfo>();
-        parentInfo.Children.Add(new ElementInfo
+        var navBarInfo = new ElementInfo
         {
             Id = id,
             ParentId = parentId,
@@ -344,7 +494,9 @@ public class VisualTreeWalker
             Text = title,
             IsVisible = true,
             IsEnabled = false, // not interactive
-        });
+        };
+        TryPopulateSyntheticBounds(id, marker, navBarInfo);
+        parentInfo.Children.Add(navBarInfo);
     }
 
     private void AddSearchHandler(Page page, string parentId, ElementInfo parentInfo)
@@ -357,7 +509,7 @@ public class VisualTreeWalker
             var marker = new SearchHandlerMarker { Handler = handler };
             var id = GetOrCreateObjectId(marker, $"SearchHandler_{parentId}");
             parentInfo.Children ??= new List<ElementInfo>();
-            parentInfo.Children.Add(new ElementInfo
+            var shInfo = new ElementInfo
             {
                 Id = id,
                 ParentId = parentId,
@@ -366,7 +518,15 @@ public class VisualTreeWalker
                 Text = handler.Placeholder ?? "Search",
                 IsVisible = handler.SearchBoxVisibility != SearchBoxVisibility.Hidden,
                 IsEnabled = handler.IsSearchEnabled,
-            });
+                NativeProperties = new Dictionary<string, string?>
+                {
+                    ["placeholder"] = handler.Placeholder,
+                    ["query"] = handler.Query,
+                    ["searchBoxVisibility"] = handler.SearchBoxVisibility.ToString(),
+                },
+            };
+            TryPopulateSyntheticBounds(id, marker, shInfo);
+            parentInfo.Children.Add(shInfo);
         }
         catch { } // Shell.GetSearchHandler may throw if not in Shell context
     }
@@ -380,7 +540,7 @@ public class VisualTreeWalker
         {
             var flyoutMarker = new FlyoutButtonMarker { Shell = shell };
             var flyoutId = GetOrCreateObjectId(flyoutMarker, "FlyoutButton");
-            parentInfo.Children.Insert(0, new ElementInfo
+            var flyoutBtnInfo = new ElementInfo
             {
                 Id = flyoutId,
                 ParentId = parentId,
@@ -390,7 +550,9 @@ public class VisualTreeWalker
                 Text = "☰",
                 IsVisible = shell.FlyoutBehavior == FlyoutBehavior.Flyout,
                 IsEnabled = true,
-            });
+            };
+            TryPopulateSyntheticBounds(flyoutId, flyoutMarker, flyoutBtnInfo);
+            parentInfo.Children.Insert(0, flyoutBtnInfo);
         }
 
         // Flyout items
@@ -403,7 +565,7 @@ public class VisualTreeWalker
                     var isSelected = shell.CurrentItem == item;
                     var fiMarker = new ShellFlyoutItemMarker { Item = item, Shell = shell };
                     var fiId = GetOrCreateObjectId(fiMarker, $"FlyoutItem_{bsi.Route ?? bsi.Title}");
-                    parentInfo.Children.Add(new ElementInfo
+                    var fiInfo = new ElementInfo
                     {
                         Id = fiId,
                         ParentId = parentId,
@@ -414,7 +576,15 @@ public class VisualTreeWalker
                         IsVisible = bsi.IsVisible,
                         IsEnabled = bsi.IsEnabled,
                         IsFocused = isSelected,
-                    });
+                    };
+                    // Enrich with route info
+                    var fiProps = new Dictionary<string, string?>();
+                    if (!string.IsNullOrEmpty(bsi.Route)) fiProps["route"] = bsi.Route;
+                    if (bsi.Icon is FileImageSource fIcon) fiProps["icon"] = fIcon.File;
+                    if (bsi.FlyoutIcon is FileImageSource fFlyout) fiProps["flyoutIcon"] = fFlyout.File;
+                    if (fiProps.Count > 0) fiInfo.NativeProperties = fiProps;
+                    TryPopulateSyntheticBounds(fiId, fiMarker, fiInfo);
+                    parentInfo.Children.Add(fiInfo);
                 }
             }
         }
@@ -434,7 +604,7 @@ public class VisualTreeWalker
                         var isSelected = currentItem.CurrentItem == section;
                         var tabMarker = new ShellTabMarker { Section = section, Shell = shell };
                         var tabId = GetOrCreateObjectId(tabMarker, $"Tab_{section.Route ?? section.Title}");
-                        parentInfo.Children.Add(new ElementInfo
+                        var tabInfo = new ElementInfo
                         {
                             Id = tabId,
                             ParentId = parentId,
@@ -445,7 +615,13 @@ public class VisualTreeWalker
                             IsVisible = section.IsVisible,
                             IsEnabled = section.IsEnabled,
                             IsFocused = isSelected,
-                        });
+                        };
+                        var tabProps = new Dictionary<string, string?>();
+                        if (!string.IsNullOrEmpty(section.Route)) tabProps["route"] = section.Route;
+                        if (section.Icon is FileImageSource tIcon) tabProps["icon"] = tIcon.File;
+                        if (tabProps.Count > 0) tabInfo.NativeProperties = tabProps;
+                        TryPopulateSyntheticBounds(tabId, tabMarker, tabInfo);
+                        parentInfo.Children.Add(tabInfo);
                     }
                 }
             }
@@ -479,7 +655,6 @@ public class VisualTreeWalker
 
     private void AddNavigationPageSynthetics(NavigationPage navPage, string parentId, ElementInfo parentInfo)
     {
-        // NavigationPage title from current page (rendered in native nav bar)
         try
         {
             var currentPage = navPage.CurrentPage;
@@ -489,7 +664,7 @@ public class VisualTreeWalker
                 var marker = new NavBarTitleMarker { Title = currentPage.Title };
                 var id = GetOrCreateObjectId(marker, $"NavBarTitle_{parentId}");
                 parentInfo.Children ??= new List<ElementInfo>();
-                parentInfo.Children.Insert(0, new ElementInfo
+                var npNavInfo = new ElementInfo
                 {
                     Id = id,
                     ParentId = parentId,
@@ -498,7 +673,9 @@ public class VisualTreeWalker
                     Text = currentPage.Title,
                     IsVisible = true,
                     IsEnabled = false,
-                });
+                };
+                TryPopulateSyntheticBounds(id, marker, npNavInfo);
+                parentInfo.Children.Insert(0, npNavInfo);
             }
         }
         catch { }
@@ -509,7 +686,7 @@ public class VisualTreeWalker
         var marker = new FlyoutToggleMarker { FlyoutPage = flyoutPage };
         var id = GetOrCreateObjectId(marker, "FlyoutToggle");
         parentInfo.Children ??= new List<ElementInfo>();
-        parentInfo.Children.Insert(0, new ElementInfo
+        var ftInfo = new ElementInfo
         {
             Id = id,
             ParentId = parentId,
@@ -519,7 +696,9 @@ public class VisualTreeWalker
             Text = "☰",
             IsVisible = true,
             IsEnabled = true,
-        });
+        };
+        TryPopulateSyntheticBounds(id, marker, ftInfo);
+        parentInfo.Children.Insert(0, ftInfo);
     }
 
     private void AddTabbedPageSynthetics(TabbedPage tabbedPage, string parentId, ElementInfo parentInfo)
@@ -534,7 +713,7 @@ public class VisualTreeWalker
                     var isSelected = tabbedPage.CurrentPage == tabPage;
                     var marker = new TabbedPageTabMarker { Page = tabPage, TabbedPage = tabbedPage };
                     var tabId = GetOrCreateObjectId(marker, $"Tab_{tabPage.AutomationId ?? tabPage.Title}");
-                    parentInfo.Children.Add(new ElementInfo
+                    var tpTabInfo = new ElementInfo
                     {
                         Id = tabId,
                         ParentId = parentId,
@@ -545,7 +724,11 @@ public class VisualTreeWalker
                         IsVisible = true,
                         IsEnabled = true,
                         IsFocused = isSelected,
-                    });
+                    };
+                    if (tabPage.IconImageSource is FileImageSource tpIcon)
+                        tpTabInfo.NativeProperties = new Dictionary<string, string?> { ["icon"] = tpIcon.File };
+                    TryPopulateSyntheticBounds(tabId, marker, tpTabInfo);
+                    parentInfo.Children.Add(tpTabInfo);
                 }
             }
         }
@@ -561,6 +744,23 @@ public class VisualTreeWalker
     public class ShellTabMarker { public ShellSection Section { get; init; } = null!; public Shell Shell { get; init; } = null!; }
     public class FlyoutToggleMarker { public FlyoutPage FlyoutPage { get; init; } = null!; }
     public class TabbedPageTabMarker { public Page Page { get; init; } = null!; public TabbedPage TabbedPage { get; init; } = null!; }
+
+    /// <summary>
+    /// Tries to resolve and store bounds for a synthetic element.
+    /// </summary>
+    private void TryPopulateSyntheticBounds(string id, object marker, ElementInfo info)
+    {
+        try
+        {
+            var bounds = ResolveSyntheticBounds(marker);
+            if (bounds != null)
+            {
+                info.Bounds = bounds;
+                _syntheticBounds[id] = bounds;
+            }
+        }
+        catch { }
+    }
 
     private ElementInfo CreateToolbarItemInfo(ToolbarItem item, string parentId)
     {
@@ -766,5 +966,6 @@ public class VisualTreeWalker
         _elementMap.Clear();
         _reverseMap.Clear();
         _objectMap.Clear();
+        _syntheticBounds.Clear();
     }
 }
