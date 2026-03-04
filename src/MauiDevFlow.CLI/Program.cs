@@ -359,9 +359,18 @@ class Program
         var logsLimitOption = new Option<int>("--limit", () => 100, "Number of log entries to return");
         var logsSkipOption = new Option<int>("--skip", () => 0, "Number of newest entries to skip");
         var logsSourceOption = new Option<string?>("--source", () => null, "Filter by log source: native, webview, or all (default: all)");
-        var mauiLogsCmd = new Command("logs", "Fetch application logs") { logsLimitOption, logsSkipOption, logsSourceOption };
-        mauiLogsCmd.SetHandler(async (host, port, limit, skip, source) => await MauiLogsAsync(host, port, limit, skip, source),
-            agentHostOption, agentPortOption, logsLimitOption, logsSkipOption, logsSourceOption);
+        var logsFollowOption = new Option<bool>("--follow", () => false, "Stream logs in real-time (Ctrl+C to stop)");
+        logsFollowOption.AddAlias("-f");
+        var logsJsonOption = new Option<bool>("--json", () => false, "Output as JSONL (machine-readable, use with --follow)");
+        var mauiLogsCmd = new Command("logs", "Fetch application logs") { logsLimitOption, logsSkipOption, logsSourceOption, logsFollowOption, logsJsonOption };
+        mauiLogsCmd.SetHandler(async (host, port, limit, skip, source, follow, json) =>
+        {
+            if (follow)
+                await MauiLogsFollowAsync(host, port, source, json);
+            else
+                await MauiLogsAsync(host, port, limit, skip, source);
+        },
+            agentHostOption, agentPortOption, logsLimitOption, logsSkipOption, logsSourceOption, logsFollowOption, logsJsonOption);
         mauiCommand.Add(mauiLogsCmd);
 
         // ── Network monitoring command ──
@@ -1427,47 +1436,140 @@ class Program
 
             foreach (var entry in doc.RootElement.EnumerateArray())
             {
-                var ts = entry.GetProperty("t").GetString() ?? "";
-                var level = entry.GetProperty("l").GetString() ?? "";
-                var category = entry.GetProperty("c").GetString() ?? "";
-                var message = entry.GetProperty("m").GetString() ?? "";
-                var exception = entry.TryGetProperty("e", out var eProp) ? eProp.GetString() : null;
-                var logSource = entry.TryGetProperty("s", out var sProp) ? sProp.GetString() : null;
-
-                // Color-code by level
-                var color = level switch
-                {
-                    "Critical" or "Error" => ConsoleColor.Red,
-                    "Warning" => ConsoleColor.Yellow,
-                    "Debug" or "Trace" => ConsoleColor.DarkGray,
-                    _ => ConsoleColor.White
-                };
-
-                var saved = Console.ForegroundColor;
-                Console.ForegroundColor = color;
-                Console.Write($"[{ts}] ");
-                Console.Write($"{level,-12} ");
-
-                // Show source tag for webview logs
-                if (logSource == "webview")
-                {
-                    Console.ForegroundColor = ConsoleColor.Magenta;
-                    Console.Write("[WebView] ");
-                }
-
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write($"{category}: ");
-                Console.ForegroundColor = color;
-                Console.WriteLine(message);
-                if (!string.IsNullOrEmpty(exception))
-                {
-                    Console.ForegroundColor = ConsoleColor.DarkRed;
-                    Console.WriteLine($"  Exception: {exception}");
-                }
-                Console.ForegroundColor = saved;
+                PrintLogEntry(entry);
             }
         }
         catch (Exception ex) { WriteError(ex.Message); }
+    }
+
+    private static async Task MauiLogsFollowAsync(string host, int port, string? source, bool json)
+    {
+        var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+        var wsUrl = $"ws://{host}:{port}/ws/logs";
+        if (!string.IsNullOrEmpty(source))
+            wsUrl += $"?source={Uri.EscapeDataString(source)}";
+
+        while (!cts.Token.IsCancellationRequested)
+        {
+            try
+            {
+                using var ws = new System.Net.WebSockets.ClientWebSocket();
+                await ws.ConnectAsync(new Uri(wsUrl), cts.Token);
+
+                if (!json)
+                {
+                    Console.WriteLine($"Connected to log stream at {host}:{port}");
+                    if (!string.IsNullOrEmpty(source))
+                        Console.WriteLine($"Filtering: source={source}");
+                    Console.WriteLine("Streaming logs... (Ctrl+C to stop)\n");
+                }
+
+                var buffer = new byte[65536];
+                var sb = new StringBuilder();
+
+                while (!cts.Token.IsCancellationRequested && ws.State == System.Net.WebSockets.WebSocketState.Open)
+                {
+                    System.Net.WebSockets.WebSocketReceiveResult result;
+                    sb.Clear();
+                    do
+                    {
+                        result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token);
+                        if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) break;
+                        sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                    } while (!result.EndOfMessage);
+
+                    if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) break;
+                    if (cts.Token.IsCancellationRequested) break;
+
+                    var msg = sb.ToString();
+                    if (string.IsNullOrEmpty(msg)) continue;
+
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(msg);
+                        var type = doc.RootElement.GetProperty("type").GetString();
+
+                        if (type == "replay" && doc.RootElement.TryGetProperty("entries", out var entries))
+                        {
+                            foreach (var entry in entries.EnumerateArray())
+                            {
+                                if (json)
+                                    PrintLogEntryJson(entry);
+                                else
+                                    PrintLogEntry(entry);
+                            }
+                        }
+                        else if (type == "log" && doc.RootElement.TryGetProperty("entry", out var logEntry))
+                        {
+                            if (json)
+                                PrintLogEntryJson(logEntry);
+                            else
+                                PrintLogEntry(logEntry);
+                        }
+                    }
+                    catch (JsonException) { }
+                }
+            }
+            catch (OperationCanceledException) { break; }
+            catch (System.Net.WebSockets.WebSocketException)
+            {
+                if (cts.Token.IsCancellationRequested) break;
+                try { await Task.Delay(1000, cts.Token); }
+                catch { break; }
+            }
+            catch (Exception ex)
+            {
+                WriteError(ex.Message);
+                break;
+            }
+        }
+    }
+
+    private static void PrintLogEntry(JsonElement entry)
+    {
+        var ts = entry.TryGetProperty("t", out var tProp) ? tProp.GetString() ?? "" : "";
+        var level = entry.TryGetProperty("l", out var lProp) ? lProp.GetString() ?? "" : "";
+        var category = entry.TryGetProperty("c", out var cProp) ? cProp.GetString() ?? "" : "";
+        var message = entry.TryGetProperty("m", out var mProp) ? mProp.GetString() ?? "" : "";
+        var exception = entry.TryGetProperty("e", out var eProp) ? eProp.GetString() : null;
+        var logSource = entry.TryGetProperty("s", out var sProp) ? sProp.GetString() : null;
+
+        var color = level switch
+        {
+            "Critical" or "Error" => ConsoleColor.Red,
+            "Warning" => ConsoleColor.Yellow,
+            "Debug" or "Trace" => ConsoleColor.DarkGray,
+            _ => ConsoleColor.White
+        };
+
+        var saved = Console.ForegroundColor;
+        Console.ForegroundColor = color;
+        Console.Write($"[{ts}] ");
+        Console.Write($"{level,-12} ");
+
+        if (logSource == "webview")
+        {
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.Write("[WebView] ");
+        }
+
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write($"{category}: ");
+        Console.ForegroundColor = color;
+        Console.WriteLine(message);
+        if (!string.IsNullOrEmpty(exception))
+        {
+            Console.ForegroundColor = ConsoleColor.DarkRed;
+            Console.WriteLine($"  Exception: {exception}");
+        }
+        Console.ForegroundColor = saved;
+    }
+
+    private static void PrintLogEntryJson(JsonElement entry)
+    {
+        Console.WriteLine(entry.GetRawText());
     }
 
     // ── Network monitoring ──

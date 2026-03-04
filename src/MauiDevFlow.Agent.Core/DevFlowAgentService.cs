@@ -262,6 +262,9 @@ public class DevFlowAgentService : IDisposable
 
         // WebSocket: live network monitoring stream
         _server.MapWebSocket("/ws/network", HandleNetworkWebSocket);
+
+        // WebSocket: live log streaming
+        _server.MapWebSocket("/ws/logs", HandleLogsWebSocket);
     }
 
     private async Task<HttpResponse> HandleStatus(HttpRequest request)
@@ -1340,6 +1343,82 @@ public class DevFlowAgentService : IDisposable
         finally
         {
             NetworkStore.OnRequestCaptured -= OnRequest;
+        }
+    }
+
+    private async Task HandleLogsWebSocket(
+        System.Net.Sockets.TcpClient client,
+        System.Net.Sockets.NetworkStream stream,
+        HttpRequest request,
+        CancellationToken ct)
+    {
+        if (_logProvider == null) return;
+
+        // Parse optional source filter from query string
+        request.QueryParams.TryGetValue("source", out var sourceFilter);
+
+        // Send replay of recent log entries
+        var recent = _logProvider.Reader.Read(100, 0, sourceFilter);
+        var replayMsg = JsonSerializer.Serialize(new { type = "replay", entries = recent });
+        await AgentHttpServer.WebSocketSendTextAsync(stream, replayMsg, ct);
+
+        // Subscribe to live log entries
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var sendQueue = new System.Collections.Concurrent.ConcurrentQueue<Logging.FileLogEntry>();
+
+        void OnLog(Logging.FileLogEntry entry)
+        {
+            if (sourceFilter != null && !string.Equals(entry.Source, sourceFilter, StringComparison.OrdinalIgnoreCase))
+                return;
+            sendQueue.Enqueue(entry);
+        }
+        _logProvider.Writer.OnLogWritten += OnLog;
+
+        try
+        {
+            // Read loop (detects disconnection)
+            var readTask = Task.Run(async () =>
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    var msg = await AgentHttpServer.WebSocketReadTextAsync(stream, cts.Token);
+                    if (msg == null) { await cts.CancelAsync(); break; }
+                }
+            }, cts.Token);
+
+            // Send loop — drain queue and send pings periodically
+            var lastPing = DateTime.UtcNow;
+            while (!cts.Token.IsCancellationRequested)
+            {
+                while (sendQueue.TryDequeue(out var entry))
+                {
+                    try
+                    {
+                        var json = JsonSerializer.Serialize(new { type = "log", entry });
+                        await AgentHttpServer.WebSocketSendTextAsync(stream, json, cts.Token);
+                    }
+                    catch { await cts.CancelAsync(); break; }
+                }
+
+                if ((DateTime.UtcNow - lastPing).TotalSeconds >= 15)
+                {
+                    try
+                    {
+                        await AgentHttpServer.WebSocketSendPingAsync(stream, cts.Token);
+                        lastPing = DateTime.UtcNow;
+                    }
+                    catch { await cts.CancelAsync(); break; }
+                }
+
+                try { await Task.Delay(50, cts.Token); }
+                catch { break; }
+            }
+
+            await readTask;
+        }
+        finally
+        {
+            _logProvider.Writer.OnLogWritten -= OnLog;
         }
     }
 

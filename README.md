@@ -274,6 +274,7 @@ auto-assigned by the broker (range 10223–10899), or configurable via `.mauidev
 | `/api/property/{id}/{name}` | GET | Get property value |
 | `/api/property/{id}/{name}` | POST | Set property `{"value":"..."}` |
 | `/api/logs?limit=N&skip=N&source=S` | GET | Application logs (source: `native`, `webview`, or omit for all) |
+| `/ws/logs?source=S` | WS | WebSocket stream of log entries (replay + live). Filter by source: `native`, `webview`, or omit for all |
 | `/api/network?limit=N&host=H&method=M` | GET | Recent captured HTTP requests (summary) |
 | `/api/network/{id}` | GET | Full request/response details (headers, body) |
 | `/api/network/clear` | POST | Clear captured request buffer |

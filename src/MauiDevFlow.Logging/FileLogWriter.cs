@@ -60,7 +60,14 @@ public class FileLogWriter : IDisposable
         if (_disposed) return;
         var json = JsonSerializer.Serialize(entry);
         _buffer.Enqueue(json);
+        OnLogWritten?.Invoke(entry);
     }
+
+    /// <summary>
+    /// Fired synchronously each time a log entry is written (before disk flush).
+    /// Subscribers should not block.
+    /// </summary>
+    public event Action<FileLogEntry>? OnLogWritten;
 
     /// <summary>
     /// Synchronously drains the in-memory buffer to disk.
