@@ -429,6 +429,52 @@ public class PlatformVisualTreeWalker : VisualTreeWalker
     }
 #endif
 
+    protected override string? EnsurePlatformStableId(object platformObj)
+    {
+        try
+        {
+#if IOS || MACCATALYST
+            if (platformObj is UIKit.UIView uiView)
+            {
+                if (string.IsNullOrEmpty(uiView.AccessibilityIdentifier))
+                    uiView.AccessibilityIdentifier = Guid.NewGuid().ToString();
+                return uiView.AccessibilityIdentifier;
+            }
+#elif ANDROID
+            if (platformObj is Android.Views.View androidView)
+            {
+                var existing = androidView.ContentDescription;
+                if (string.IsNullOrEmpty(existing))
+                {
+                    existing = Guid.NewGuid().ToString();
+                    androidView.ContentDescription = existing;
+                }
+                return existing;
+            }
+#elif WINDOWS
+            if (platformObj is Microsoft.UI.Xaml.UIElement uiElement)
+            {
+                var existing = Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(uiElement);
+                if (string.IsNullOrEmpty(existing))
+                {
+                    existing = Guid.NewGuid().ToString();
+                    uiElement.SetValue(Microsoft.UI.Xaml.Automation.AutomationProperties.AutomationIdProperty, existing);
+                }
+                return existing;
+            }
+#elif MACOS
+            if (platformObj is AppKit.NSView nsView)
+            {
+                if (string.IsNullOrEmpty(nsView.AccessibilityIdentifier))
+                    nsView.AccessibilityIdentifier = Guid.NewGuid().ToString();
+                return nsView.AccessibilityIdentifier;
+            }
+#endif
+        }
+        catch { }
+        return null;
+    }
+
 #if WINDOWS
     private BoundsInfo? ResolveBoundsWindows(object marker)
     {

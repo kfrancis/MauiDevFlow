@@ -122,4 +122,23 @@ public class GtkVisualTreeWalker : VisualTreeWalker
             // Native info is best-effort; don't fail the tree walk
         }
     }
+
+    protected override string? EnsurePlatformStableId(object platformObj)
+    {
+        try
+        {
+            if (platformObj is global::Gtk.Widget widget)
+            {
+                var name = widget.GetName();
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = Guid.NewGuid().ToString();
+                    widget.SetName(name);
+                }
+                return name;
+            }
+        }
+        catch { }
+        return null;
+    }
 }

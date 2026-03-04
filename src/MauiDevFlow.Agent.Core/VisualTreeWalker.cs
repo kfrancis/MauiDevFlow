@@ -2,21 +2,22 @@ using Microsoft.Maui;
 using Microsoft.Maui.Controls;
 using MauiDevFlow.Agent.Core.Css;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 
 namespace MauiDevFlow.Agent.Core;
 
 /// <summary>
 /// Walks the MAUI visual tree and produces ElementInfo representations.
 /// Uses IVisualTreeElement.GetVisualChildren() for tree traversal.
-/// Maintains a session-scoped element ID dictionary for stable references.
-/// Also maps non-visual elements (ToolbarItems, MenuItems, navigation back button) for interaction.
+/// IDs are derived from element properties (Element.Id, AutomationId, platform stamps)
+/// rather than cached maps — the tree is walked fresh each time.
 /// </summary>
 public class VisualTreeWalker
 {
-    private readonly ConcurrentDictionary<string, WeakReference<IVisualTreeElement>> _elementMap = new();
-    private readonly ConcurrentDictionary<IVisualTreeElement, string> _reverseMap = new(ReferenceEqualityComparer.Instance);
-    private readonly ConcurrentDictionary<string, WeakReference<object>> _objectMap = new();
-    private readonly ConcurrentDictionary<string, BoundsInfo> _syntheticBounds = new();
+    // Per-walk state — fully rebuilt on each WalkTree call
+    private readonly HashSet<string> _usedIds = new();
+    private readonly Dictionary<Guid, string> _elementIdToExternalId = new();
+    private readonly ConcurrentDictionary<string, (BoundsInfo Bounds, object Marker)> _syntheticBounds = new();
 
     /// <summary>
     /// Marker object representing the navigation back button in Shell or NavigationPage.
@@ -28,49 +29,44 @@ public class VisualTreeWalker
     }
 
     /// <summary>
-    /// Looks up a previously-mapped element by its ID.
+    /// Looks up an element by ID by walking the tree fresh.
     /// Returns IVisualTreeElement, ToolbarItem, or other mapped objects.
     /// </summary>
-    public object? GetElementById(string id)
+    public object? GetElementById(string id, Application? app)
     {
-        if (_elementMap.TryGetValue(id, out var weakRef) && weakRef.TryGetTarget(out var element))
-            return element;
+        if (app == null || string.IsNullOrEmpty(id)) return null;
 
-        if (_objectMap.TryGetValue(id, out var objRef) && objRef.TryGetTarget(out var obj))
-            return obj;
+        // Walk tree fresh, searching for matching ID
+        _usedIds.Clear();
+        _elementIdToExternalId.Clear();
+        _syntheticBounds.Clear();
 
-        _elementMap.TryRemove(id, out _);
-        _objectMap.TryRemove(id, out _);
+        if (app is not IVisualTreeElement appElement) return null;
+        foreach (var child in appElement.GetVisualChildren())
+        {
+            var result = FindByIdRecursive(child, id, null);
+            if (result != null) return result;
+        }
         return null;
     }
 
     /// <summary>
-    /// Looks up an element by ID, re-walking the tree if not found.
-    /// </summary>
-    public object? GetElementById(string id, Application? app)
-    {
-        var el = GetElementById(id);
-        if (el != null || app == null) return el;
-
-        // Re-walk tree to refresh the element map
-        WalkTree(app);
-        return GetElementById(id);
-    }
-
-    /// <summary>
-    /// Returns diagnostic info about the element map state.
+    /// Returns diagnostic info about the walker state.
     /// </summary>
     public string GetDiagnostics()
     {
-        return $"Map has {_elementMap.Count + _objectMap.Count} entries. Keys: [{string.Join(", ", _elementMap.Keys.Concat(_objectMap.Keys).Take(20))}]";
+        return $"SyntheticBounds: {_syntheticBounds.Count}, ElementIds: {_elementIdToExternalId.Count}";
     }
 
     /// <summary>
-    /// Reverse lookup: gets the ID for a previously-mapped visual tree element.
+    /// Reverse lookup: gets the ID for a visual tree element using Element.Id.
+    /// Uses the per-walk lookup populated by the most recent WalkTree call.
     /// </summary>
     public string? GetIdForElement(IVisualTreeElement element)
     {
-        return _reverseMap.TryGetValue(element, out var id) ? id : null;
+        if (element is Element el && _elementIdToExternalId.TryGetValue(el.Id, out var id))
+            return id;
+        return null;
     }
 
     /// <summary>
@@ -81,12 +77,9 @@ public class VisualTreeWalker
         var hits = new List<(string, object, BoundsInfo)>();
         foreach (var kvp in _syntheticBounds)
         {
-            var b = kvp.Value;
+            var (b, marker) = kvp.Value;
             if (x >= b.X && x <= b.X + b.Width && y >= b.Y && y <= b.Y + b.Height)
-            {
-                if (_objectMap.TryGetValue(kvp.Key, out var objRef) && objRef.TryGetTarget(out var obj))
-                    hits.Add((kvp.Key, obj, b));
-            }
+                hits.Add((kvp.Key, marker, b));
         }
         return hits;
     }
@@ -139,10 +132,10 @@ public class VisualTreeWalker
         };
 
         // Set bounds if available (synthetic bounds are already window-absolute)
-        if (_syntheticBounds.TryGetValue(id, out var bounds))
+        if (_syntheticBounds.TryGetValue(id, out var entry))
         {
-            info.Bounds = bounds;
-            info.WindowBounds = bounds;
+            info.Bounds = entry.Bounds;
+            info.WindowBounds = entry.Bounds;
         }
 
         // Enrich with MAUI properties
@@ -242,6 +235,8 @@ public class VisualTreeWalker
     /// </summary>
     public List<ElementInfo> WalkTree(Application app, int maxDepth = 0, int? windowIndex = null)
     {
+        _usedIds.Clear();
+        _elementIdToExternalId.Clear();
         _syntheticBounds.Clear();
         var results = new List<ElementInfo>();
         if (app is not IVisualTreeElement appElement)
@@ -276,7 +271,7 @@ public class VisualTreeWalker
     /// </summary>
     public ElementInfo? WalkElement(IVisualTreeElement element, string? parentId, int currentDepth, int maxDepth)
     {
-        var id = GetOrCreateId(element);
+        var id = GenerateId(element);
         var info = CreateElementInfo(element, id, parentId);
 
         if (maxDepth > 0 && currentDepth >= maxDepth)
@@ -368,7 +363,7 @@ public class VisualTreeWalker
 
     private void QueryRecursive(IVisualTreeElement element, string? type, string? automationId, string? text, string? parentId, List<ElementInfo> results)
     {
-        var id = GetOrCreateId(element);
+        var id = GenerateId(element);
         var info = CreateElementInfo(element, id, parentId);
 
         MatchAndAdd(info, type, automationId, text, results);
@@ -417,63 +412,338 @@ public class VisualTreeWalker
             results.Add(info);
     }
 
-    private string GetOrCreateId(IVisualTreeElement element)
+    /// <summary>
+    /// Generates a stable ID for a MAUI visual tree element using Element.Id.
+    /// </summary>
+    private string GenerateId(IVisualTreeElement element)
     {
-        if (_reverseMap.TryGetValue(element, out var existingId))
-            return existingId;
+        // Check if we've already generated an ID for this Element.Id in this walk
+        if (element is Element el && _elementIdToExternalId.TryGetValue(el.Id, out var cachedId))
+            return cachedId;
 
-        // Prefer AutomationId if available
         string id;
         if (element is VisualElement ve && !string.IsNullOrEmpty(ve.AutomationId))
         {
             id = ve.AutomationId;
-            // Ensure uniqueness by appending suffix if needed
-            if (_elementMap.ContainsKey(id) || _objectMap.ContainsKey(id))
+            if (_usedIds.Contains(id))
             {
-                var suffix = 1;
-                while (_elementMap.ContainsKey($"{id}_{suffix}") || _objectMap.ContainsKey($"{id}_{suffix}"))
-                    suffix++;
-                id = $"{id}_{suffix}";
+                // Duplicate AutomationId — suffix with Element.Id
+                if (element is Element dupEl)
+                    id = $"{id}_{dupEl.Id.ToString("N")[..8]}";
+                else
+                    id = $"{id}_{RuntimeHelpers.GetHashCode(element):x8}";
             }
+        }
+        else if (element is Element elem)
+        {
+            id = elem.Id.ToString("N")[..12];
         }
         else
         {
-            id = Guid.NewGuid().ToString("N")[..12];
+            // Non-Element IVisualTreeElement (rare)
+            var platformId = EnsurePlatformStableId(element);
+            id = platformId ?? RuntimeHelpers.GetHashCode(element).ToString("x8");
         }
 
-        _elementMap[id] = new WeakReference<IVisualTreeElement>(element);
-        _reverseMap[element] = id;
+        _usedIds.Add(id);
+        if (element is Element elFinal)
+            _elementIdToExternalId[elFinal.Id] = id;
         return id;
     }
 
-    private string GetOrCreateObjectId(object element, string? automationId)
+    /// <summary>
+    /// Generates a stable ID for a synthetic/non-visual element.
+    /// Uses Element.Id from the backing object when available.
+    /// </summary>
+    private string GenerateObjectId(object element, string? automationId)
     {
-        // Check if we already have an ID for this object
-        foreach (var kvp in _objectMap)
+        var identity = GetStableIdentity(element);
+
+        // If backing is an Element, use its Element.Id for suffix disambiguation
+        if (identity is Element el)
         {
-            if (kvp.Value.TryGetTarget(out var existing) && ReferenceEquals(existing, element))
-                return kvp.Key;
+            string id;
+            if (!string.IsNullOrEmpty(automationId))
+            {
+                id = automationId;
+                if (_usedIds.Contains(id))
+                    id = $"{id}_{el.Id.ToString("N")[..8]}";
+            }
+            else
+            {
+                // No automationId — use Element.Id directly, but check for collisions
+                // with MAUI elements that share the same Element.Id
+                id = el.Id.ToString("N")[..12];
+                if (_usedIds.Contains(id))
+                    id = $"{id}_{RuntimeHelpers.GetHashCode(element):x8}";
+            }
+
+            _usedIds.Add(id);
+            return id;
         }
 
-        string id;
+        // Non-Element backing — use automationId + platform stamp or hash
         if (!string.IsNullOrEmpty(automationId))
         {
-            id = automationId;
-            if (_elementMap.ContainsKey(id) || _objectMap.ContainsKey(id))
+            var id = automationId;
+            if (_usedIds.Contains(id))
             {
-                var suffix = 1;
-                while (_elementMap.ContainsKey($"{id}_{suffix}") || _objectMap.ContainsKey($"{id}_{suffix}"))
-                    suffix++;
-                id = $"{id}_{suffix}";
+                var platformId = EnsurePlatformStableId(identity);
+                var suffix = platformId ?? RuntimeHelpers.GetHashCode(identity).ToString("x8");
+                id = $"{id}_{suffix[..Math.Min(8, suffix.Length)]}";
             }
-        }
-        else
-        {
-            id = Guid.NewGuid().ToString("N")[..12];
+            _usedIds.Add(id);
+            return id;
         }
 
-        _objectMap[id] = new WeakReference<object>(element);
-        return id;
+        // Last resort
+        {
+            var platformId = EnsurePlatformStableId(identity);
+            var id = platformId ?? RuntimeHelpers.GetHashCode(identity).ToString("x8");
+            _usedIds.Add(id);
+            return id;
+        }
+    }
+
+    /// <summary>
+    /// Override in platform-specific subclasses to stamp a stable GUID on a platform view.
+    /// Returns the stamped ID, or null if not applicable.
+    /// </summary>
+    protected virtual string? EnsurePlatformStableId(object platformObj) => null;
+
+    /// <summary>
+    /// Returns the stable underlying object for identity comparison.
+    /// Synthetic markers wrap persistent MAUI objects (Page, Shell, ShellItem, etc.)
+    /// that survive across tree walks.
+    /// </summary>
+    private static object GetStableIdentity(object element) => element switch
+    {
+        NavBarTitleMarker m => m.Page,
+        FlyoutButtonMarker m => m.Shell,
+        ShellFlyoutItemMarker m => m.Item,
+        ShellTabMarker m => m.Section,
+        SearchHandlerMarker m => m.Handler,
+        FlyoutToggleMarker m => m.FlyoutPage,
+        TabbedPageTabMarker m => m.Page,
+        BackButtonMarker m => m.Navigation,
+        _ => element
+    };
+
+    /// <summary>
+    /// Recursively walks the tree searching for an element whose generated ID matches targetId.
+    /// Returns the element/marker or null. Early exits on match.
+    /// </summary>
+    private object? FindByIdRecursive(IVisualTreeElement element, string targetId, string? parentId)
+    {
+        var id = GenerateId(element);
+        if (id == targetId) return element;
+
+        var children = element.GetVisualChildren();
+
+        // Check synthetics on Pages
+        if (element is Page page)
+        {
+            // NavBarTitle
+            var navBarResult = FindNavBarTitleById(page, id, targetId);
+            if (navBarResult != null) return navBarResult;
+
+            // ToolbarItems
+            foreach (var toolbarItem in page.ToolbarItems)
+            {
+                var tiId = GenerateObjectId(toolbarItem, toolbarItem.AutomationId);
+                if (tiId == targetId) return toolbarItem;
+            }
+
+            // BackButton
+            var backResult = FindBackButtonById(page, id, targetId);
+            if (backResult != null) return backResult;
+
+            // SearchHandler
+            var searchResult = FindSearchHandlerById(page, id, targetId);
+            if (searchResult != null) return searchResult;
+        }
+
+        // Shell synthetics
+        if (element is Shell shell)
+        {
+            var shellResult = FindShellSyntheticsById(shell, id, targetId);
+            if (shellResult != null) return shellResult;
+        }
+
+        // NavigationPage synthetics
+        if (element is NavigationPage navPage)
+        {
+            var navResult = FindNavigationPageSyntheticsById(navPage, id, targetId);
+            if (navResult != null) return navResult;
+        }
+
+        // FlyoutPage synthetics
+        if (element is FlyoutPage flyoutPage)
+        {
+            var flyoutResult = FindFlyoutPageSyntheticsById(flyoutPage, id, targetId);
+            if (flyoutResult != null) return flyoutResult;
+        }
+
+        // TabbedPage synthetics
+        if (element is TabbedPage tabbedPage)
+        {
+            var tabbedResult = FindTabbedPageSyntheticsById(tabbedPage, id, targetId);
+            if (tabbedResult != null) return tabbedResult;
+        }
+
+        // Recurse into children
+        foreach (var child in children)
+        {
+            var result = FindByIdRecursive(child, targetId, id);
+            if (result != null) return result;
+        }
+
+        // ShellContent special case
+        if (element is ShellContent sc && sc.Content is IVisualTreeElement scPage
+            && !children.Contains(scPage))
+        {
+            var result = FindByIdRecursive(scPage, targetId, id);
+            if (result != null) return result;
+        }
+
+        return null;
+    }
+
+    private object? FindNavBarTitleById(Page page, string parentId, string targetId)
+    {
+        try
+        {
+            if (page.Parent is Shell || FindAncestor<Shell>(page) != null)
+            {
+                if (!Shell.GetNavBarIsVisible(page)) return null;
+            }
+            else if (page.Parent is NavigationPage)
+            {
+                if (!NavigationPage.GetHasNavigationBar(page)) return null;
+            }
+        }
+        catch { return null; }
+
+        var title = page.Title;
+        if (string.IsNullOrEmpty(title)) return null;
+
+        var marker = new NavBarTitleMarker { Title = title, Page = page };
+        var id = GenerateObjectId(marker, $"NavBarTitle_{parentId}");
+        return id == targetId ? marker : null;
+    }
+
+    private object? FindBackButtonById(Page page, string parentId, string targetId)
+    {
+        var (nav, title) = ResolveBackNavigation(page);
+        if (nav == null) return null;
+
+        var marker = new BackButtonMarker { Navigation = nav, Title = title };
+        var id = GenerateObjectId(marker, "BackButton");
+        return id == targetId ? marker : null;
+    }
+
+    private object? FindSearchHandlerById(Page page, string parentId, string targetId)
+    {
+        try
+        {
+            var handler = Shell.GetSearchHandler(page);
+            if (handler == null) return null;
+
+            var marker = new SearchHandlerMarker { Handler = handler };
+            var id = GenerateObjectId(marker, $"SearchHandler_{parentId}");
+            return id == targetId ? marker : null;
+        }
+        catch { return null; }
+    }
+
+    private object? FindShellSyntheticsById(Shell shell, string parentId, string targetId)
+    {
+        // Flyout button
+        if (shell.FlyoutBehavior != FlyoutBehavior.Disabled)
+        {
+            var flyoutMarker = new FlyoutButtonMarker { Shell = shell };
+            var flyoutId = GenerateObjectId(flyoutMarker, "FlyoutButton");
+            if (flyoutId == targetId) return flyoutMarker;
+        }
+
+        // Flyout items
+        try
+        {
+            foreach (var item in shell.Items)
+            {
+                if (item is BaseShellItem bsi && bsi.FlyoutItemIsVisible)
+                {
+                    var fiMarker = new ShellFlyoutItemMarker { Item = item, Shell = shell };
+                    var fiId = GenerateObjectId(fiMarker, $"FlyoutItem_{bsi.Route ?? bsi.Title}");
+                    if (fiId == targetId) return fiMarker;
+                }
+            }
+        }
+        catch { }
+
+        // Tab bar items
+        try
+        {
+            var currentPage = shell.CurrentPage;
+            if (currentPage != null && Shell.GetTabBarIsVisible(currentPage))
+            {
+                var currentItem = shell.CurrentItem;
+                if (currentItem?.Items != null && currentItem.Items.Count > 1)
+                {
+                    foreach (var section in currentItem.Items)
+                    {
+                        var tabMarker = new ShellTabMarker { Section = section, Shell = shell };
+                        var tabId = GenerateObjectId(tabMarker, $"Tab_{section.Route ?? section.Title}");
+                        if (tabId == targetId) return tabMarker;
+                    }
+                }
+            }
+        }
+        catch { }
+
+        return null;
+    }
+
+    private object? FindNavigationPageSyntheticsById(NavigationPage navPage, string parentId, string targetId)
+    {
+        try
+        {
+            var currentPage = navPage.CurrentPage;
+            if (currentPage != null && !string.IsNullOrEmpty(currentPage.Title)
+                && NavigationPage.GetHasNavigationBar(currentPage))
+            {
+                var marker = new NavBarTitleMarker { Title = currentPage.Title, Page = currentPage };
+                var id = GenerateObjectId(marker, $"NavBarTitle_{parentId}");
+                if (id == targetId) return marker;
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private object? FindFlyoutPageSyntheticsById(FlyoutPage flyoutPage, string parentId, string targetId)
+    {
+        var marker = new FlyoutToggleMarker { FlyoutPage = flyoutPage };
+        var id = GenerateObjectId(marker, "FlyoutToggle");
+        return id == targetId ? marker : null;
+    }
+
+    private object? FindTabbedPageSyntheticsById(TabbedPage tabbedPage, string parentId, string targetId)
+    {
+        try
+        {
+            foreach (var child in tabbedPage.Children)
+            {
+                if (child is Page tabPage)
+                {
+                    var marker = new TabbedPageTabMarker { Page = tabPage, TabbedPage = tabbedPage };
+                    var tabId = GenerateObjectId(marker, $"Tab_{tabPage.AutomationId ?? tabPage.Title}");
+                    if (tabId == targetId) return marker;
+                }
+            }
+        }
+        catch { }
+        return null;
     }
 
     // ── Synthetic element injection helpers ──
@@ -497,8 +767,8 @@ public class VisualTreeWalker
         var title = page.Title;
         if (string.IsNullOrEmpty(title)) return;
 
-        var marker = new NavBarTitleMarker { Title = title };
-        var id = GetOrCreateObjectId(marker, $"NavBarTitle_{parentId}");
+        var marker = new NavBarTitleMarker { Title = title, Page = page };
+        var id = GenerateObjectId(marker, $"NavBarTitle_{parentId}");
         parentInfo.Children ??= new List<ElementInfo>();
         var navBarInfo = new ElementInfo
         {
@@ -522,7 +792,7 @@ public class VisualTreeWalker
             if (handler == null) return;
 
             var marker = new SearchHandlerMarker { Handler = handler };
-            var id = GetOrCreateObjectId(marker, $"SearchHandler_{parentId}");
+            var id = GenerateObjectId(marker, $"SearchHandler_{parentId}");
             parentInfo.Children ??= new List<ElementInfo>();
             var shInfo = new ElementInfo
             {
@@ -554,7 +824,7 @@ public class VisualTreeWalker
         if (shell.FlyoutBehavior != FlyoutBehavior.Disabled)
         {
             var flyoutMarker = new FlyoutButtonMarker { Shell = shell };
-            var flyoutId = GetOrCreateObjectId(flyoutMarker, "FlyoutButton");
+            var flyoutId = GenerateObjectId(flyoutMarker, "FlyoutButton");
             var flyoutBtnInfo = new ElementInfo
             {
                 Id = flyoutId,
@@ -579,7 +849,7 @@ public class VisualTreeWalker
                 {
                     var isSelected = shell.CurrentItem == item;
                     var fiMarker = new ShellFlyoutItemMarker { Item = item, Shell = shell };
-                    var fiId = GetOrCreateObjectId(fiMarker, $"FlyoutItem_{bsi.Route ?? bsi.Title}");
+                    var fiId = GenerateObjectId(fiMarker, $"FlyoutItem_{bsi.Route ?? bsi.Title}");
                     var fiInfo = new ElementInfo
                     {
                         Id = fiId,
@@ -618,7 +888,7 @@ public class VisualTreeWalker
                     {
                         var isSelected = currentItem.CurrentItem == section;
                         var tabMarker = new ShellTabMarker { Section = section, Shell = shell };
-                        var tabId = GetOrCreateObjectId(tabMarker, $"Tab_{section.Route ?? section.Title}");
+                        var tabId = GenerateObjectId(tabMarker, $"Tab_{section.Route ?? section.Title}");
                         var tabInfo = new ElementInfo
                         {
                             Id = tabId,
@@ -676,8 +946,8 @@ public class VisualTreeWalker
             if (currentPage != null && !string.IsNullOrEmpty(currentPage.Title)
                 && NavigationPage.GetHasNavigationBar(currentPage))
             {
-                var marker = new NavBarTitleMarker { Title = currentPage.Title };
-                var id = GetOrCreateObjectId(marker, $"NavBarTitle_{parentId}");
+                var marker = new NavBarTitleMarker { Title = currentPage.Title, Page = currentPage };
+                var id = GenerateObjectId(marker, $"NavBarTitle_{parentId}");
                 parentInfo.Children ??= new List<ElementInfo>();
                 var npNavInfo = new ElementInfo
                 {
@@ -699,7 +969,7 @@ public class VisualTreeWalker
     private void AddFlyoutPageSynthetics(FlyoutPage flyoutPage, string parentId, ElementInfo parentInfo)
     {
         var marker = new FlyoutToggleMarker { FlyoutPage = flyoutPage };
-        var id = GetOrCreateObjectId(marker, "FlyoutToggle");
+        var id = GenerateObjectId(marker, "FlyoutToggle");
         parentInfo.Children ??= new List<ElementInfo>();
         var ftInfo = new ElementInfo
         {
@@ -727,7 +997,7 @@ public class VisualTreeWalker
                 {
                     var isSelected = tabbedPage.CurrentPage == tabPage;
                     var marker = new TabbedPageTabMarker { Page = tabPage, TabbedPage = tabbedPage };
-                    var tabId = GetOrCreateObjectId(marker, $"Tab_{tabPage.AutomationId ?? tabPage.Title}");
+                    var tabId = GenerateObjectId(marker, $"Tab_{tabPage.AutomationId ?? tabPage.Title}");
                     var tpTabInfo = new ElementInfo
                     {
                         Id = tabId,
@@ -752,7 +1022,7 @@ public class VisualTreeWalker
 
     // ── Marker types for synthetic elements ──
 
-    public class NavBarTitleMarker { public string Title { get; init; } = ""; }
+    public class NavBarTitleMarker { public string Title { get; init; } = ""; public Page Page { get; init; } = null!; }
     public class SearchHandlerMarker { public SearchHandler Handler { get; init; } = null!; }
     public class FlyoutButtonMarker { public Shell Shell { get; init; } = null!; }
     public class ShellFlyoutItemMarker { public ShellItem Item { get; init; } = null!; public Shell Shell { get; init; } = null!; }
@@ -772,7 +1042,7 @@ public class VisualTreeWalker
             {
                 info.Bounds = bounds;
                 info.WindowBounds = bounds;
-                _syntheticBounds[id] = bounds;
+                _syntheticBounds[id] = (bounds, marker);
             }
         }
         catch { }
@@ -780,7 +1050,7 @@ public class VisualTreeWalker
 
     private ElementInfo CreateToolbarItemInfo(ToolbarItem item, string parentId)
     {
-        var id = GetOrCreateObjectId(item, item.AutomationId);
+        var id = GenerateObjectId(item, item.AutomationId);
         return new ElementInfo
         {
             Id = id,
@@ -796,7 +1066,26 @@ public class VisualTreeWalker
 
     private ElementInfo? CreateBackButtonInfo(Page page, string parentId)
     {
-        // Check NavigationPage stack — only add to the top page
+        var (nav, title) = ResolveBackNavigation(page);
+        if (nav == null) return null;
+
+        var marker = new BackButtonMarker { Navigation = nav, Title = title };
+        var id = GenerateObjectId(marker, "BackButton");
+        return new ElementInfo
+        {
+            Id = id,
+            ParentId = parentId,
+            Type = "BackButton",
+            FullType = "MauiDevFlow.Agent.Core.BackButton",
+            AutomationId = "BackButton",
+            Text = $"← {title}",
+            IsVisible = true,
+            IsEnabled = true,
+        };
+    }
+
+    private (INavigation? Nav, string Title) ResolveBackNavigation(Page page)
+    {
         INavigation? nav = null;
         string title = "Back";
 
@@ -810,7 +1099,6 @@ public class VisualTreeWalker
                 title = prev.Title;
         }
 
-        // Check Shell's ShellSection navigation stack — only for the current top page
         if (nav == null)
         {
             var shell = FindAncestor<Shell>(page);
@@ -832,22 +1120,7 @@ public class VisualTreeWalker
             }
         }
 
-        if (nav == null)
-            return null;
-
-        var marker = new BackButtonMarker { Navigation = nav, Title = title };
-        var id = GetOrCreateObjectId(marker, "BackButton");
-        return new ElementInfo
-        {
-            Id = id,
-            ParentId = parentId,
-            Type = "BackButton",
-            FullType = "MauiDevFlow.Agent.Core.BackButton",
-            AutomationId = "BackButton",
-            Text = $"← {title}",
-            IsVisible = true,
-            IsEnabled = true,
-        };
+        return (nav, title);
     }
 
     private static T? FindAncestor<T>(Element? element) where T : Element
@@ -982,9 +1255,8 @@ public class VisualTreeWalker
     /// </summary>
     public void Reset()
     {
-        _elementMap.Clear();
-        _reverseMap.Clear();
-        _objectMap.Clear();
+        _usedIds.Clear();
+        _elementIdToExternalId.Clear();
         _syntheticBounds.Clear();
     }
 }

@@ -546,7 +546,7 @@ public class DevFlowAgentService : IDisposable
 
                 var element = await DispatchAsync(() =>
                 {
-                    var el = _treeWalker.GetElementById(matchId);
+                    var el = _treeWalker.GetElementById(matchId, _app);
                     return el as VisualElement;
                 });
 
