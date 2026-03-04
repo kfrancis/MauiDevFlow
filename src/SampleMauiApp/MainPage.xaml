@@ -3,6 +3,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="SampleMauiApp.MainPage"
              Title="My Todos">
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Settings"
+                     IconImageSource="settings.png"
+                     AutomationId="SettingsToolbarItem"
+                     Clicked="OnSettingsClicked" />
+    </ContentPage.ToolbarItems>
     <ContentPage.BackgroundColor>
         <AppThemeBinding Light="#F5F5F5" Dark="#1C1B1F" />
     </ContentPage.BackgroundColor>

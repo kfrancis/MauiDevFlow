@@ -112,6 +112,11 @@ public partial class MainPage : ContentPage
         await Navigation.PushModalAsync(new ModalTestPage());
     }
 
+    private async void OnSettingsClicked(object? sender, EventArgs e)
+    {
+        await DisplayAlertAsync("Settings", "Settings page coming soon!", "OK");
+    }
+
     private void OnAddTodo(object? sender, EventArgs e)
     {
         var text = NewTodoEntry.Text?.Trim();

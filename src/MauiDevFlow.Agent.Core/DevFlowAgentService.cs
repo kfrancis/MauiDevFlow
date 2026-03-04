@@ -822,6 +822,21 @@ public class DevFlowAgentService : IDisposable
                 case VisualTreeWalker.BackButtonMarker back:
                     back.Navigation.PopAsync();
                     return "ok";
+                case VisualTreeWalker.FlyoutButtonMarker flyoutBtn:
+                    flyoutBtn.Shell.FlyoutIsPresented = true;
+                    return "ok";
+                case VisualTreeWalker.ShellFlyoutItemMarker flyoutItem:
+                    flyoutItem.Shell.CurrentItem = flyoutItem.Item;
+                    return "ok";
+                case VisualTreeWalker.ShellTabMarker shellTab:
+                    shellTab.Shell.CurrentItem.CurrentItem = shellTab.Section;
+                    return "ok";
+                case VisualTreeWalker.FlyoutToggleMarker flyoutToggle:
+                    flyoutToggle.FlyoutPage.IsPresented = !flyoutToggle.FlyoutPage.IsPresented;
+                    return "ok";
+                case VisualTreeWalker.TabbedPageTabMarker tab:
+                    tab.TabbedPage.CurrentPage = tab.Page;
+                    return "ok";
                 case MenuItem mi:
                     ((IMenuItemController)mi).Activate();
                     return "ok";

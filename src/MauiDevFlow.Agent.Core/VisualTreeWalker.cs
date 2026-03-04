@@ -140,6 +140,9 @@ public class VisualTreeWalker
         // Add ToolbarItems as synthetic children of Pages
         if (element is Page page)
         {
+            // NavBarTitle — inject page title as synthetic element
+            AddNavBarTitle(page, id, info);
+
             foreach (var toolbarItem in page.ToolbarItems)
             {
                 var tiInfo = CreateToolbarItemInfo(toolbarItem, id);
@@ -150,6 +153,33 @@ public class VisualTreeWalker
             var backInfo = CreateBackButtonInfo(page, id);
             if (backInfo != null)
                 info.Children.Add(backInfo);
+
+            // SearchHandler (Shell only)
+            AddSearchHandler(page, id, info);
+        }
+
+        // Shell-level synthetics: flyout button, flyout items, tab bar
+        if (element is Shell shell)
+        {
+            AddShellSynthetics(shell, id, info);
+        }
+
+        // NavigationPage-level synthetics
+        if (element is NavigationPage navPage2)
+        {
+            AddNavigationPageSynthetics(navPage2, id, info);
+        }
+
+        // FlyoutPage-level synthetics
+        if (element is FlyoutPage flyoutPage)
+        {
+            AddFlyoutPageSynthetics(flyoutPage, id, info);
+        }
+
+        // TabbedPage-level synthetics
+        if (element is TabbedPage tabbedPage)
+        {
+            AddTabbedPageSynthetics(tabbedPage, id, info);
         }
 
         if (info.Children.Count == 0)
@@ -280,6 +310,257 @@ public class VisualTreeWalker
         _objectMap[id] = new WeakReference<object>(element);
         return id;
     }
+
+    // ── Synthetic element injection helpers ──
+
+    private void AddNavBarTitle(Page page, string parentId, ElementInfo parentInfo)
+    {
+        // Skip if nav bar is hidden
+        try
+        {
+            if (page.Parent is Shell || FindAncestor<Shell>(page) != null)
+            {
+                if (!Shell.GetNavBarIsVisible(page)) return;
+            }
+            else if (page.Parent is NavigationPage)
+            {
+                if (!NavigationPage.GetHasNavigationBar(page)) return;
+            }
+        }
+        catch { }
+
+        var title = page.Title;
+        if (string.IsNullOrEmpty(title)) return;
+
+        var marker = new NavBarTitleMarker { Title = title };
+        var id = GetOrCreateObjectId(marker, $"NavBarTitle_{parentId}");
+        parentInfo.Children ??= new List<ElementInfo>();
+        parentInfo.Children.Add(new ElementInfo
+        {
+            Id = id,
+            ParentId = parentId,
+            Type = "NavBarTitle",
+            FullType = "MauiDevFlow.Agent.Core.NavBarTitle",
+            Text = title,
+            IsVisible = true,
+            IsEnabled = false, // not interactive
+        });
+    }
+
+    private void AddSearchHandler(Page page, string parentId, ElementInfo parentInfo)
+    {
+        try
+        {
+            var handler = Shell.GetSearchHandler(page);
+            if (handler == null) return;
+
+            var marker = new SearchHandlerMarker { Handler = handler };
+            var id = GetOrCreateObjectId(marker, $"SearchHandler_{parentId}");
+            parentInfo.Children ??= new List<ElementInfo>();
+            parentInfo.Children.Add(new ElementInfo
+            {
+                Id = id,
+                ParentId = parentId,
+                Type = "SearchHandler",
+                FullType = "MauiDevFlow.Agent.Core.SearchHandler",
+                Text = handler.Placeholder ?? "Search",
+                IsVisible = handler.SearchBoxVisibility != SearchBoxVisibility.Hidden,
+                IsEnabled = handler.IsSearchEnabled,
+            });
+        }
+        catch { } // Shell.GetSearchHandler may throw if not in Shell context
+    }
+
+    private void AddShellSynthetics(Shell shell, string parentId, ElementInfo parentInfo)
+    {
+        parentInfo.Children ??= new List<ElementInfo>();
+
+        // Flyout button
+        if (shell.FlyoutBehavior != FlyoutBehavior.Disabled)
+        {
+            var flyoutMarker = new FlyoutButtonMarker { Shell = shell };
+            var flyoutId = GetOrCreateObjectId(flyoutMarker, "FlyoutButton");
+            parentInfo.Children.Insert(0, new ElementInfo
+            {
+                Id = flyoutId,
+                ParentId = parentId,
+                Type = "FlyoutButton",
+                FullType = "MauiDevFlow.Agent.Core.FlyoutButton",
+                AutomationId = "FlyoutButton",
+                Text = "☰",
+                IsVisible = shell.FlyoutBehavior == FlyoutBehavior.Flyout,
+                IsEnabled = true,
+            });
+        }
+
+        // Flyout items
+        try
+        {
+            foreach (var item in shell.Items)
+            {
+                if (item is BaseShellItem bsi && bsi.FlyoutItemIsVisible)
+                {
+                    var isSelected = shell.CurrentItem == item;
+                    var fiMarker = new ShellFlyoutItemMarker { Item = item, Shell = shell };
+                    var fiId = GetOrCreateObjectId(fiMarker, $"FlyoutItem_{bsi.Route ?? bsi.Title}");
+                    parentInfo.Children.Add(new ElementInfo
+                    {
+                        Id = fiId,
+                        ParentId = parentId,
+                        Type = "FlyoutItem",
+                        FullType = "MauiDevFlow.Agent.Core.FlyoutItem",
+                        AutomationId = bsi.AutomationId,
+                        Text = bsi.Title,
+                        IsVisible = bsi.IsVisible,
+                        IsEnabled = bsi.IsEnabled,
+                        IsFocused = isSelected,
+                    });
+                }
+            }
+        }
+        catch { }
+
+        // Tab bar items for current ShellItem
+        try
+        {
+            var currentPage = shell.CurrentPage;
+            if (currentPage != null && Shell.GetTabBarIsVisible(currentPage))
+            {
+                var currentItem = shell.CurrentItem;
+                if (currentItem?.Items != null && currentItem.Items.Count > 1)
+                {
+                    foreach (var section in currentItem.Items)
+                    {
+                        var isSelected = currentItem.CurrentItem == section;
+                        var tabMarker = new ShellTabMarker { Section = section, Shell = shell };
+                        var tabId = GetOrCreateObjectId(tabMarker, $"Tab_{section.Route ?? section.Title}");
+                        parentInfo.Children.Add(new ElementInfo
+                        {
+                            Id = tabId,
+                            ParentId = parentId,
+                            Type = "Tab",
+                            FullType = "MauiDevFlow.Agent.Core.Tab",
+                            AutomationId = section.AutomationId,
+                            Text = section.Title,
+                            IsVisible = section.IsVisible,
+                            IsEnabled = section.IsEnabled,
+                            IsFocused = isSelected,
+                        });
+                    }
+                }
+            }
+        }
+        catch { }
+
+        // Flyout header/footer
+        try
+        {
+            if (shell.FlyoutHeader is View headerView && headerView is IVisualTreeElement headerVte)
+            {
+                var headerInfo = WalkElement(headerVte, parentId, 1, 3);
+                if (headerInfo != null)
+                {
+                    headerInfo.Type = "FlyoutHeader";
+                    parentInfo.Children.Add(headerInfo);
+                }
+            }
+            if (shell.FlyoutFooter is View footerView && footerView is IVisualTreeElement footerVte)
+            {
+                var footerInfo = WalkElement(footerVte, parentId, 1, 3);
+                if (footerInfo != null)
+                {
+                    footerInfo.Type = "FlyoutFooter";
+                    parentInfo.Children.Add(footerInfo);
+                }
+            }
+        }
+        catch { }
+    }
+
+    private void AddNavigationPageSynthetics(NavigationPage navPage, string parentId, ElementInfo parentInfo)
+    {
+        // NavigationPage title from current page (rendered in native nav bar)
+        try
+        {
+            var currentPage = navPage.CurrentPage;
+            if (currentPage != null && !string.IsNullOrEmpty(currentPage.Title)
+                && NavigationPage.GetHasNavigationBar(currentPage))
+            {
+                var marker = new NavBarTitleMarker { Title = currentPage.Title };
+                var id = GetOrCreateObjectId(marker, $"NavBarTitle_{parentId}");
+                parentInfo.Children ??= new List<ElementInfo>();
+                parentInfo.Children.Insert(0, new ElementInfo
+                {
+                    Id = id,
+                    ParentId = parentId,
+                    Type = "NavBarTitle",
+                    FullType = "MauiDevFlow.Agent.Core.NavBarTitle",
+                    Text = currentPage.Title,
+                    IsVisible = true,
+                    IsEnabled = false,
+                });
+            }
+        }
+        catch { }
+    }
+
+    private void AddFlyoutPageSynthetics(FlyoutPage flyoutPage, string parentId, ElementInfo parentInfo)
+    {
+        var marker = new FlyoutToggleMarker { FlyoutPage = flyoutPage };
+        var id = GetOrCreateObjectId(marker, "FlyoutToggle");
+        parentInfo.Children ??= new List<ElementInfo>();
+        parentInfo.Children.Insert(0, new ElementInfo
+        {
+            Id = id,
+            ParentId = parentId,
+            Type = "FlyoutToggle",
+            FullType = "MauiDevFlow.Agent.Core.FlyoutToggle",
+            AutomationId = "FlyoutToggle",
+            Text = "☰",
+            IsVisible = true,
+            IsEnabled = true,
+        });
+    }
+
+    private void AddTabbedPageSynthetics(TabbedPage tabbedPage, string parentId, ElementInfo parentInfo)
+    {
+        parentInfo.Children ??= new List<ElementInfo>();
+        try
+        {
+            foreach (var child in tabbedPage.Children)
+            {
+                if (child is Page tabPage)
+                {
+                    var isSelected = tabbedPage.CurrentPage == tabPage;
+                    var marker = new TabbedPageTabMarker { Page = tabPage, TabbedPage = tabbedPage };
+                    var tabId = GetOrCreateObjectId(marker, $"Tab_{tabPage.AutomationId ?? tabPage.Title}");
+                    parentInfo.Children.Add(new ElementInfo
+                    {
+                        Id = tabId,
+                        ParentId = parentId,
+                        Type = "Tab",
+                        FullType = "MauiDevFlow.Agent.Core.Tab",
+                        AutomationId = tabPage.AutomationId,
+                        Text = tabPage.Title,
+                        IsVisible = true,
+                        IsEnabled = true,
+                        IsFocused = isSelected,
+                    });
+                }
+            }
+        }
+        catch { }
+    }
+
+    // ── Marker types for synthetic elements ──
+
+    public class NavBarTitleMarker { public string Title { get; init; } = ""; }
+    public class SearchHandlerMarker { public SearchHandler Handler { get; init; } = null!; }
+    public class FlyoutButtonMarker { public Shell Shell { get; init; } = null!; }
+    public class ShellFlyoutItemMarker { public ShellItem Item { get; init; } = null!; public Shell Shell { get; init; } = null!; }
+    public class ShellTabMarker { public ShellSection Section { get; init; } = null!; public Shell Shell { get; init; } = null!; }
+    public class FlyoutToggleMarker { public FlyoutPage FlyoutPage { get; init; } = null!; }
+    public class TabbedPageTabMarker { public Page Page { get; init; } = null!; public TabbedPage TabbedPage { get; init; } = null!; }
 
     private ElementInfo CreateToolbarItemInfo(ToolbarItem item, string parentId)
     {
