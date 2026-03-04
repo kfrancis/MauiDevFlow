@@ -81,6 +81,8 @@ public class VisualTreeWalker
             if (x >= b.X && x <= b.X + b.Width && y >= b.Y && y <= b.Y + b.Height)
                 hits.Add((kvp.Key, marker, b));
         }
+        // Sort by area (smallest first) — more specific elements on top
+        hits.Sort((a, b) => (a.Item3.Width * a.Item3.Height).CompareTo(b.Item3.Width * b.Item3.Height));
         return hits;
     }
 
@@ -97,6 +99,7 @@ public class VisualTreeWalker
         FlyoutToggleMarker => "FlyoutToggle",
         TabbedPageTabMarker => "Tab",
         BackButtonMarker => "BackButton",
+        ToolbarItem => "ToolbarItem",
         _ => marker.GetType().Name.Replace("Marker", "")
     };
 
@@ -113,6 +116,7 @@ public class VisualTreeWalker
         FlyoutToggleMarker => "☰",
         TabbedPageTabMarker m => m.Page.Title,
         BackButtonMarker m => m.Title,
+        ToolbarItem t => t.Text,
         _ => null
     };
 
@@ -1051,7 +1055,7 @@ public class VisualTreeWalker
     private ElementInfo CreateToolbarItemInfo(ToolbarItem item, string parentId)
     {
         var id = GenerateObjectId(item, item.AutomationId);
-        return new ElementInfo
+        var tiInfo = new ElementInfo
         {
             Id = id,
             ParentId = parentId,
@@ -1062,6 +1066,8 @@ public class VisualTreeWalker
             IsVisible = true,
             IsEnabled = item.IsEnabled,
         };
+        TryPopulateSyntheticBounds(id, item, tiInfo);
+        return tiInfo;
     }
 
     private ElementInfo? CreateBackButtonInfo(Page page, string parentId)

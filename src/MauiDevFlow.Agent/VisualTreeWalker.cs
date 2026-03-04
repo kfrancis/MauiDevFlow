@@ -232,6 +232,7 @@ public class PlatformVisualTreeWalker : VisualTreeWalker
             ShellTabMarker m => m.Shell,
             NavBarTitleMarker => Shell.Current,
             SearchHandlerMarker => Shell.Current,
+            ToolbarItem => Shell.Current,
             _ => null
         };
 
@@ -239,11 +240,18 @@ public class PlatformVisualTreeWalker : VisualTreeWalker
             return null;
 
         // Find UINavigationBar for nav bar elements
-        if (marker is NavBarTitleMarker or FlyoutButtonMarker or SearchHandlerMarker)
+        if (marker is NavBarTitleMarker or FlyoutButtonMarker or SearchHandlerMarker or ToolbarItem)
         {
             var navBar = FindSubview<UINavigationBar>(shellView);
             if (navBar != null)
             {
+                if (marker is ToolbarItem ti)
+                {
+                    // Find the button matching this toolbar item in the nav bar
+                    var button = FindToolbarButton(navBar, ti, shellView);
+                    if (button != null) return button;
+                }
+
                 var frame = navBar.ConvertRectToView(navBar.Bounds, shellView);
                 if (marker is FlyoutButtonMarker)
                 {
@@ -281,6 +289,49 @@ public class PlatformVisualTreeWalker : VisualTreeWalker
                     Height = frame.Height
                 };
             }
+        }
+
+        return null;
+    }
+
+    private static BoundsInfo? FindToolbarButton(UINavigationBar navBar, ToolbarItem ti, UIView rootView)
+    {
+        // Search for any interactive view in the nav bar matching the toolbar item
+        var match = FindMatchingView(navBar, ti);
+        if (match != null)
+        {
+            var frame = match.ConvertRectToView(match.Bounds, rootView);
+            return new BoundsInfo
+            {
+                X = frame.X,
+                Y = frame.Y,
+                Width = frame.Width,
+                Height = frame.Height
+            };
+        }
+        return null;
+    }
+
+    private static UIView? FindMatchingView(UIView root, ToolbarItem ti)
+    {
+        // Check this view's accessibility label/identifier against the toolbar item
+        var accessLabel = root.AccessibilityLabel;
+        var accessId = root.AccessibilityIdentifier;
+        var title = (root as UIButton)?.CurrentTitle;
+
+        if ((!string.IsNullOrEmpty(ti.Text) && (title == ti.Text || accessLabel == ti.Text))
+            || (!string.IsNullOrEmpty(ti.AutomationId) && accessId == ti.AutomationId))
+        {
+            // Prefer interactive leaf views — only match if clickable or if no subviews
+            if (root.UserInteractionEnabled && root.Bounds.Width > 0 && root.Bounds.Height > 0)
+                return root;
+        }
+
+        // Recurse into subviews, preferring deeper (more specific) matches
+        foreach (var sub in root.Subviews)
+        {
+            var found = FindMatchingView(sub, ti);
+            if (found != null) return found;
         }
 
         return null;
@@ -333,6 +384,7 @@ public class PlatformVisualTreeWalker : VisualTreeWalker
             ShellFlyoutItemMarker m => m.Shell,
             ShellTabMarker m => m.Shell,
             NavBarTitleMarker => Shell.Current,
+            ToolbarItem => Shell.Current,
             _ => null
         };
 
@@ -341,11 +393,29 @@ public class PlatformVisualTreeWalker : VisualTreeWalker
 
         var density = shellView.Context?.Resources?.DisplayMetrics?.Density ?? 1f;
 
-        if (marker is NavBarTitleMarker or FlyoutButtonMarker)
+        if (marker is NavBarTitleMarker or FlyoutButtonMarker or ToolbarItem)
         {
             var toolbar = FindAndroidView<AndroidX.AppCompat.Widget.Toolbar>(shellView);
             if (toolbar != null)
             {
+                // For ToolbarItem, try to find the specific action view
+                if (marker is ToolbarItem ti)
+                {
+                    var actionView = FindAndroidToolbarButton(toolbar, ti);
+                    if (actionView != null)
+                    {
+                        var loc = new int[2];
+                        actionView.GetLocationInWindow(loc);
+                        return new BoundsInfo
+                        {
+                            X = loc[0] / density,
+                            Y = loc[1] / density,
+                            Width = actionView.Width / density,
+                            Height = actionView.Height / density
+                        };
+                    }
+                }
+
                 var location = new int[2];
                 toolbar.GetLocationOnScreen(location);
                 var shellLocation = new int[2];
@@ -398,6 +468,20 @@ public class PlatformVisualTreeWalker : VisualTreeWalker
                     if (found != null) return found;
                 }
             }
+        }
+        return null;
+    }
+
+    private static Android.Views.View? FindAndroidToolbarButton(AndroidX.AppCompat.Widget.Toolbar toolbar, ToolbarItem ti)
+    {
+        // Search toolbar's menu for matching item by title or content description
+        for (int i = 0; i < toolbar.ChildCount; i++)
+        {
+            var child = toolbar.GetChildAt(i);
+            if (child == null) continue;
+            var desc = child.ContentDescription;
+            if (!string.IsNullOrEmpty(ti.Text) && desc == ti.Text) return child;
+            if (child is Android.Widget.TextView tv && tv.Text == ti.Text) return child;
         }
         return null;
     }
