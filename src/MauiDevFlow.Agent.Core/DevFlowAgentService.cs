@@ -393,6 +393,25 @@ public class DevFlowAgentService : IDisposable
 
             var hits = VisualTreeElementExtensions.GetVisualTreeElements(window, x, y);
             var elements = new List<object>();
+
+            // Check synthetic elements first — they represent visible nav chrome
+            // (nav bar, tab bar, flyout button) that sits on top of MAUI content.
+            var syntheticHits = _treeWalker.HitTestSynthetics(x, y);
+            foreach (var (synId, marker, bounds) in syntheticHits)
+            {
+                var synInfo = new Dictionary<string, object?>
+                {
+                    ["id"] = synId,
+                    ["type"] = _treeWalker.GetSyntheticTypeName(marker),
+                    ["bounds"] = bounds,
+                    ["windowBounds"] = bounds, // synthetic bounds are already window-absolute
+                    ["synthetic"] = true,
+                };
+                var text = _treeWalker.GetSyntheticText(marker);
+                if (text != null) synInfo["text"] = text;
+                elements.Add(synInfo);
+            }
+
             foreach (var hit in hits)
             {
                 if (hit is not IVisualTreeElement vte) continue;
@@ -422,23 +441,6 @@ public class DevFlowAgentService : IDisposable
                 if (hit is Label l) info["text"] = l.Text;
                 else if (hit is Button b) info["text"] = b.Text;
                 elements.Add(info);
-            }
-
-            // Also check synthetic elements for coordinate matches
-            var syntheticHits = _treeWalker.HitTestSynthetics(x, y);
-            foreach (var (synId, marker, bounds) in syntheticHits)
-            {
-                var synInfo = new Dictionary<string, object?>
-                {
-                    ["id"] = synId,
-                    ["type"] = _treeWalker.GetSyntheticTypeName(marker),
-                    ["bounds"] = bounds,
-                    ["windowBounds"] = bounds, // synthetic bounds are already window-absolute
-                    ["synthetic"] = true,
-                };
-                var text = _treeWalker.GetSyntheticText(marker);
-                if (text != null) synInfo["text"] = text;
-                elements.Add(synInfo);
             }
 
             return (object?)new { x, y, window = windowIndex ?? 0, elements };
