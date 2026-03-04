@@ -239,6 +239,7 @@ public class DevFlowAgentService : IDisposable
         _server.MapGet("/api/tree", HandleTree);
         _server.MapGet("/api/element/{id}", HandleElement);
         _server.MapGet("/api/query", HandleQuery);
+        _server.MapGet("/api/hittest", HandleHitTest);
         _server.MapGet("/api/screenshot", HandleScreenshot);
         _server.MapGet("/api/property/{id}/{name}", HandleProperty);
         _server.MapPost("/api/property/{id}/{name}", HandleSetProperty);
@@ -357,6 +358,57 @@ public class DevFlowAgentService : IDisposable
 
         var simpleResults = await DispatchAsync(() => _treeWalker.Query(_app, type, automationId, text));
         return HttpResponse.Json(simpleResults);
+    }
+
+    private async Task<HttpResponse> HandleHitTest(HttpRequest request)
+    {
+        if (_app == null) return HttpResponse.Error("Agent not bound to app");
+
+        if (!request.QueryParams.TryGetValue("x", out var xStr) || !double.TryParse(xStr, out var x))
+            return HttpResponse.Error("x coordinate is required");
+        if (!request.QueryParams.TryGetValue("y", out var yStr) || !double.TryParse(yStr, out var y))
+            return HttpResponse.Error("y coordinate is required");
+
+        var windowIndex = ParseWindowIndex(request);
+
+        var result = await DispatchAsync(() =>
+        {
+            var window = GetWindow(windowIndex);
+            if (window == null) return (object?)null;
+
+            // Ensure tree is walked so element IDs are assigned
+            _treeWalker.WalkTree(_app!, 0, windowIndex);
+
+            var hits = VisualTreeElementExtensions.GetVisualTreeElements(window, x, y);
+            var elements = new List<object>();
+            foreach (var hit in hits)
+            {
+                if (hit is not IVisualTreeElement vte) continue;
+                var id = _treeWalker.GetIdForElement(vte);
+                if (id == null) continue;
+
+                var info = new Dictionary<string, object?> { ["id"] = id, ["type"] = hit.GetType().Name };
+                if (hit is VisualElement ve)
+                {
+                    info["automationId"] = ve.AutomationId;
+                    info["bounds"] = new BoundsInfo
+                    {
+                        X = double.IsFinite(ve.Frame.X) ? ve.Frame.X : 0,
+                        Y = double.IsFinite(ve.Frame.Y) ? ve.Frame.Y : 0,
+                        Width = double.IsFinite(ve.Frame.Width) ? ve.Frame.Width : 0,
+                        Height = double.IsFinite(ve.Frame.Height) ? ve.Frame.Height : 0
+                    };
+                }
+                if (hit is Label l) info["text"] = l.Text;
+                else if (hit is Button b) info["text"] = b.Text;
+                elements.Add(info);
+            }
+            return (object?)new { x, y, window = windowIndex ?? 0, elements };
+        });
+
+        return result != null
+            ? HttpResponse.Json(result)
+            : HttpResponse.Error($"Window {windowIndex ?? 0} not found");
     }
 
     protected virtual async Task<HttpResponse> HandleScreenshot(HttpRequest request)

@@ -193,6 +193,14 @@ public class AgentClient : IDisposable
         return await _http.GetStringAsync($"{_baseUrl}{path}");
     }
 
+    public async Task<string> HitTestAsync(double x, double y, int? window = null)
+    {
+        var path = $"/api/hittest?x={x}&y={y}";
+        if (window.HasValue)
+            path += $"&window={window.Value}";
+        return await _http.GetStringAsync($"{_baseUrl}{path}");
+    }
+
     private async Task<T?> GetAsync<T>(string path) where T : class
     {
         try

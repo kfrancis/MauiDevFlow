@@ -65,6 +65,14 @@ public class VisualTreeWalker
     }
 
     /// <summary>
+    /// Reverse lookup: gets the ID for a previously-mapped visual tree element.
+    /// </summary>
+    public string? GetIdForElement(IVisualTreeElement element)
+    {
+        return _reverseMap.TryGetValue(element, out var id) ? id : null;
+    }
+
+    /// <summary>
     /// Walks the visual tree starting from the application's windows.
     /// When windowIndex is null, walks all windows. Otherwise walks only the specified window.
     /// </summary>

@@ -181,6 +181,14 @@ class Program
             agentHostOption, agentPortOption, queryTypeOption, queryAutoIdOption, queryTextOption, querySelectorOption);
         mauiCommand.Add(mauiQueryCmd);
 
+        // MAUI hittest
+        var hitTestXArg = new Argument<double>("x", "X coordinate");
+        var hitTestYArg = new Argument<double>("y", "Y coordinate");
+        var mauiHitTestCmd = new Command("hittest", "Find elements at a point") { hitTestXArg, hitTestYArg, windowOption };
+        mauiHitTestCmd.SetHandler(async (host, port, x, y, window) => await MauiHitTestAsync(host, port, x, y, window),
+            agentHostOption, agentPortOption, hitTestXArg, hitTestYArg, windowOption);
+        mauiCommand.Add(mauiHitTestCmd);
+
         // MAUI tap
         var tapIdArg = new Argument<string>("elementId", "Element ID to tap");
         var mauiTapCmd = new Command("tap", "Tap element") { tapIdArg };
@@ -1190,6 +1198,17 @@ class Program
                     (el.IsVisible ? "" : " [hidden]") +
                     (el.IsEnabled ? "" : " [disabled]"));
             }
+        }
+        catch (Exception ex) { WriteError(ex.Message); }
+    }
+
+    private static async Task MauiHitTestAsync(string host, int port, double x, double y, int? window)
+    {
+        try
+        {
+            using var client = new MauiDevFlow.Driver.AgentClient(host, port);
+            var json = await client.HitTestAsync(x, y, window);
+            Console.WriteLine(json);
         }
         catch (Exception ex) { WriteError(ex.Message); }
     }

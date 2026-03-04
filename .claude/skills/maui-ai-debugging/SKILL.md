@@ -305,6 +305,7 @@ or `maui-devflow --agent-port 10224 MAUI status` — both are valid.
 | `MAUI status [--window W]` | Agent connection status, platform, app name, window count |
 | `MAUI tree [--depth N] [--window W]` | Visual tree (IDs, types, text, bounds). Depth 0=unlimited. Window is 0-based index; omit for all windows |
 | `MAUI query --type T --automationId A --text T` | Find elements (any/all filters) |
+| `MAUI hittest <x> <y> [--window W]` | Find elements at a point (deepest first). Returns IDs, types, bounds |
 | `MAUI tap <elementId>` | Tap an element |
 | `MAUI fill <elementId> <text>` | Fill text into Entry/Editor |
 | `MAUI clear <elementId>` | Clear text from element |

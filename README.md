@@ -270,6 +270,7 @@ auto-assigned by the broker (range 10223–10899), or configurable via `.mauidev
 | `/api/action/scroll` | POST | Scroll by delta or scroll element into view `{"elementId":"...","deltaX":0,"deltaY":200}` |
 | `/api/action/resize?window=W` | POST | Resize window `{"width":800,"height":600}` |
 | `/api/screenshot?window=W&id=ID&selector=SEL` | GET | PNG screenshot. Full window, or element by ID/selector |
+| `/api/hittest?x=X&y=Y&window=W` | GET | Find elements at a point (deepest first). Returns element IDs, types, bounds |
 | `/api/property/{id}/{name}` | GET | Get property value |
 | `/api/property/{id}/{name}` | POST | Set property `{"value":"..."}` |
 | `/api/logs?limit=N&skip=N&source=S` | GET | Application logs (source: `native`, `webview`, or omit for all) |
