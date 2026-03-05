@@ -426,3 +426,72 @@ their input.
 - Use `AutomationId` on important MAUI controls for stable element references.
 - For Blazor Hybrid, `cdp snapshot` is the most AI-friendly way to read page state.
 - Port discovery, multi-project setup, and custom ports: see [references/setup.md](references/setup.md#3b-port-configuration).
+
+## AI Agent Best Practices
+
+### Output Format
+- **Always use `--json`** or rely on TTY auto-detection (JSON is auto-enabled when stdout is piped/redirected).
+- Set `MAUIDEVFLOW_OUTPUT=json` in your environment for consistent machine-readable output.
+- Use `--no-json` only when you specifically need human-readable output in a pipe.
+- Errors go to stderr as structured JSON: `{"error": "...", "type": "RuntimeError", "retryable": false, "suggestions": [...]}`.
+- Check exit codes: 0 = success, non-zero = failure.
+
+### Reducing Token Usage
+- **Always use `--depth 3`** (or similar) for `MAUI tree` to avoid context overflow from full tree dumps.
+- Use **`--fields "id,type,text,automationId"`** to project only the fields you need.
+- Use **`--format compact`** for minimal tree output (id, type, text, automationId, bounds).
+- **Prefer `MAUI query --automationId`** over full tree traversal — much smaller response.
+- Use **element-level screenshots** (`--id <elementId>`) when you only need to see one control.
+
+### Eliminating Round-Trips
+- **Use implicit resolution** instead of query-then-act:
+  ```bash
+  # Instead of: query → get ID → tap
+  maui-devflow MAUI tap --automationId "LoginButton"
+  maui-devflow MAUI fill --automationId "Username" --text "admin"
+  maui-devflow MAUI tap --type Button --index 0  # first Button
+  ```
+- **Use `--wait-until`** instead of polling loops:
+  ```bash
+  maui-devflow MAUI query --automationId "ResultsList" --wait-until exists --timeout 10
+  maui-devflow MAUI query --automationId "Spinner" --wait-until gone --timeout 30
+  ```
+- **Use post-action flags** to verify in one call:
+  ```bash
+  maui-devflow MAUI tap abc123 --and-screenshot --and-tree --and-tree-depth 2
+  ```
+- **Use `MAUI assert`** for quick state checks:
+  ```bash
+  maui-devflow MAUI assert --id abc123 Text "Welcome!"
+  maui-devflow MAUI assert --automationId "Counter" Text "5"
+  ```
+
+### Element IDs
+- Element IDs are **ephemeral** — re-query after navigation or state changes.
+- Don't cache element IDs across multiple actions — refresh with `tree` or `query`.
+- Prefer `--automationId` for stable references (set in XAML).
+- Use `maui-devflow commands --json` to discover available commands at runtime.
+
+### Canonical Workflows
+
+**Login flow:**
+```bash
+maui-devflow MAUI query --automationId "LoginPage" --wait-until exists --timeout 15
+maui-devflow MAUI fill --automationId "UsernameField" "admin"
+maui-devflow MAUI fill --automationId "PasswordField" "password"
+maui-devflow MAUI tap --automationId "LoginButton" --and-screenshot
+maui-devflow MAUI query --automationId "HomePage" --wait-until exists --timeout 10
+```
+
+**Element inspection:**
+```bash
+maui-devflow MAUI query --automationId "MyControl" --json --fields "id,type,text,bounds"
+maui-devflow MAUI element <id> --json
+maui-devflow MAUI property <id> Text
+```
+
+**State verification:**
+```bash
+maui-devflow MAUI tap --automationId "IncrementButton"
+maui-devflow MAUI assert --automationId "CounterLabel" Text "1"
+```

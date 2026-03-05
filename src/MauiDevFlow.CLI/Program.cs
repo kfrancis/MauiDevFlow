@@ -217,31 +217,109 @@ class Program
             agentHostOption, agentPortOption, jsonOption, noJsonOption, hitTestXArg, hitTestYArg, windowOption);
         mauiCommand.Add(mauiHitTestCmd);
 
+        // Shared element resolution options (for tap, fill, clear, focus)
+        var resolveAutoIdOption = new Option<string?>("--automationId", "Resolve element by AutomationId (instead of element ID)");
+        var resolveTypeOption = new Option<string?>("--type", "Resolve element by type (used with --automationId or alone)");
+        var resolveTextOption = new Option<string?>("--text", "Resolve element by text content");
+        var resolveIndexOption = new Option<int>("--index", () => 0, "Index when multiple elements match (0-based, default: first)");
+        var andScreenshotOption = new Option<string?>("--and-screenshot", "Take screenshot after action (optional: output path)");
+        andScreenshotOption.SetDefaultValue(null);
+        andScreenshotOption.Arity = ArgumentArity.ZeroOrOne;
+        var andTreeOption = new Option<bool>("--and-tree", "Dump visual tree after action");
+        var andTreeDepthOption = new Option<int>("--and-tree-depth", () => 2, "Max depth for --and-tree");
+
         // MAUI tap
-        var tapIdArg = new Argument<string>("elementId", "Element ID to tap");
-        var mauiTapCmd = new Command("tap", "Tap element") { tapIdArg };
-        mauiTapCmd.SetHandler(async (host, port, json, noJson, id) => await MauiTapAsync(host, port, OutputWriter.ResolveJsonMode(json, noJson), id), agentHostOption, agentPortOption, jsonOption, noJsonOption, tapIdArg);
+        var tapIdArg = new Argument<string?>("elementId", () => null, "Element ID to tap (optional if --automationId, --type, or --text is used)");
+        var mauiTapCmd = new Command("tap", "Tap element") { tapIdArg, resolveAutoIdOption, resolveTypeOption, resolveTextOption, resolveIndexOption, andScreenshotOption, andTreeOption, andTreeDepthOption };
+        mauiTapCmd.SetHandler(async (ctx) =>
+        {
+            var host = ctx.ParseResult.GetValueForOption(agentHostOption)!;
+            var port = ctx.ParseResult.GetValueForOption(agentPortOption);
+            var isJson = OutputWriter.ResolveJsonMode(ctx.ParseResult.GetValueForOption(jsonOption), ctx.ParseResult.GetValueForOption(noJsonOption));
+            var id = ctx.ParseResult.GetValueForArgument(tapIdArg);
+            var autoId = ctx.ParseResult.GetValueForOption(resolveAutoIdOption);
+            var type = ctx.ParseResult.GetValueForOption(resolveTypeOption);
+            var text = ctx.ParseResult.GetValueForOption(resolveTextOption);
+            var index = ctx.ParseResult.GetValueForOption(resolveIndexOption);
+            var andScreenshot = ctx.ParseResult.GetValueForOption(andScreenshotOption);
+            var hasAndScreenshot = ctx.ParseResult.FindResultFor(andScreenshotOption) != null;
+            var andTree = ctx.ParseResult.GetValueForOption(andTreeOption);
+            var andTreeDepth = ctx.ParseResult.GetValueForOption(andTreeDepthOption);
+            var resolvedId = await ResolveElementIdAsync(host, port, isJson, id, autoId, type, text, index);
+            if (resolvedId == null) return;
+            await MauiTapAsync(host, port, isJson, resolvedId);
+            await HandlePostActionFlags(host, port, isJson, hasAndScreenshot, andScreenshot, andTree, andTreeDepth);
+        });
         mauiCommand.Add(mauiTapCmd);
 
         // MAUI fill
-        var fillIdArg = new Argument<string>("elementId", "Element ID");
+        var fillIdArg = new Argument<string?>("elementId", () => null, "Element ID (optional if --automationId, --type, or --text is used)");
         var fillTextArg2 = new Argument<string>("text", "Text to fill");
-        var mauiFillCmd = new Command("fill", "Fill text into element") { fillIdArg, fillTextArg2 };
-        mauiFillCmd.SetHandler(async (host, port, json, noJson, id, text) => await MauiFillAsync(host, port, OutputWriter.ResolveJsonMode(json, noJson), id, text), agentHostOption, agentPortOption, jsonOption, noJsonOption, fillIdArg, fillTextArg2);
+        var mauiFillCmd = new Command("fill", "Fill text into element") { fillIdArg, fillTextArg2, resolveAutoIdOption, resolveTypeOption, resolveTextOption, resolveIndexOption, andScreenshotOption, andTreeOption, andTreeDepthOption };
+        mauiFillCmd.SetHandler(async (ctx) =>
+        {
+            var host = ctx.ParseResult.GetValueForOption(agentHostOption)!;
+            var port = ctx.ParseResult.GetValueForOption(agentPortOption);
+            var isJson = OutputWriter.ResolveJsonMode(ctx.ParseResult.GetValueForOption(jsonOption), ctx.ParseResult.GetValueForOption(noJsonOption));
+            var id = ctx.ParseResult.GetValueForArgument(fillIdArg);
+            var fillText = ctx.ParseResult.GetValueForArgument(fillTextArg2);
+            var autoId = ctx.ParseResult.GetValueForOption(resolveAutoIdOption);
+            var type = ctx.ParseResult.GetValueForOption(resolveTypeOption);
+            var text = ctx.ParseResult.GetValueForOption(resolveTextOption);
+            var index = ctx.ParseResult.GetValueForOption(resolveIndexOption);
+            var andScreenshot = ctx.ParseResult.GetValueForOption(andScreenshotOption);
+            var hasAndScreenshot = ctx.ParseResult.FindResultFor(andScreenshotOption) != null;
+            var andTree = ctx.ParseResult.GetValueForOption(andTreeOption);
+            var andTreeDepth = ctx.ParseResult.GetValueForOption(andTreeDepthOption);
+            var resolvedId = await ResolveElementIdAsync(host, port, isJson, id, autoId, type, text, index);
+            if (resolvedId == null) return;
+            await MauiFillAsync(host, port, isJson, resolvedId, fillText);
+            await HandlePostActionFlags(host, port, isJson, hasAndScreenshot, andScreenshot, andTree, andTreeDepth);
+        });
         mauiCommand.Add(mauiFillCmd);
 
         // MAUI clear
-        var clearIdArg = new Argument<string>("elementId", "Element ID to clear");
-        var mauiClearCmd = new Command("clear", "Clear text from element") { clearIdArg };
-        mauiClearCmd.SetHandler(async (host, port, json, noJson, id) => await MauiClearAsync(host, port, OutputWriter.ResolveJsonMode(json, noJson), id), agentHostOption, agentPortOption, jsonOption, noJsonOption, clearIdArg);
+        var clearIdArg = new Argument<string?>("elementId", () => null, "Element ID to clear (optional if --automationId, --type, or --text is used)");
+        var mauiClearCmd = new Command("clear", "Clear text from element") { clearIdArg, resolveAutoIdOption, resolveTypeOption, resolveTextOption, resolveIndexOption, andScreenshotOption, andTreeOption, andTreeDepthOption };
+        mauiClearCmd.SetHandler(async (ctx) =>
+        {
+            var host = ctx.ParseResult.GetValueForOption(agentHostOption)!;
+            var port = ctx.ParseResult.GetValueForOption(agentPortOption);
+            var isJson = OutputWriter.ResolveJsonMode(ctx.ParseResult.GetValueForOption(jsonOption), ctx.ParseResult.GetValueForOption(noJsonOption));
+            var id = ctx.ParseResult.GetValueForArgument(clearIdArg);
+            var autoId = ctx.ParseResult.GetValueForOption(resolveAutoIdOption);
+            var type = ctx.ParseResult.GetValueForOption(resolveTypeOption);
+            var text = ctx.ParseResult.GetValueForOption(resolveTextOption);
+            var index = ctx.ParseResult.GetValueForOption(resolveIndexOption);
+            var andScreenshot = ctx.ParseResult.GetValueForOption(andScreenshotOption);
+            var hasAndScreenshot = ctx.ParseResult.FindResultFor(andScreenshotOption) != null;
+            var andTree = ctx.ParseResult.GetValueForOption(andTreeOption);
+            var andTreeDepth = ctx.ParseResult.GetValueForOption(andTreeDepthOption);
+            var resolvedId = await ResolveElementIdAsync(host, port, isJson, id, autoId, type, text, index);
+            if (resolvedId == null) return;
+            await MauiClearAsync(host, port, isJson, resolvedId);
+            await HandlePostActionFlags(host, port, isJson, hasAndScreenshot, andScreenshot, andTree, andTreeDepth);
+        });
         mauiCommand.Add(mauiClearCmd);
 
         // MAUI screenshot
         var screenshotOutputOption = new Option<string?>("--output", "Output file path");
         var screenshotIdOption = new Option<string?>("--id", "Element ID to capture");
         var screenshotSelectorOption = new Option<string?>("--selector", "CSS selector to capture (first match)");
-        var mauiScreenshotCmd = new Command("screenshot", "Take screenshot") { screenshotOutputOption, windowOption, screenshotIdOption, screenshotSelectorOption };
-        mauiScreenshotCmd.SetHandler(async (host, port, json, noJson, output, window, id, selector) => await MauiScreenshotAsync(host, port, OutputWriter.ResolveJsonMode(json, noJson), output, window, id, selector), agentHostOption, agentPortOption, jsonOption, noJsonOption, screenshotOutputOption, windowOption, screenshotIdOption, screenshotSelectorOption);
+        var screenshotOverwriteOption = new Option<bool>("--overwrite", () => false, "Overwrite existing file (default: fail if exists)");
+        var mauiScreenshotCmd = new Command("screenshot", "Take screenshot") { screenshotOutputOption, windowOption, screenshotIdOption, screenshotSelectorOption, screenshotOverwriteOption };
+        mauiScreenshotCmd.SetHandler(async (ctx) =>
+        {
+            var host = ctx.ParseResult.GetValueForOption(agentHostOption)!;
+            var port = ctx.ParseResult.GetValueForOption(agentPortOption);
+            var isJson = OutputWriter.ResolveJsonMode(ctx.ParseResult.GetValueForOption(jsonOption), ctx.ParseResult.GetValueForOption(noJsonOption));
+            await MauiScreenshotAsync(host, port, isJson,
+                ctx.ParseResult.GetValueForOption(screenshotOutputOption),
+                ctx.ParseResult.GetValueForOption(windowOption),
+                ctx.ParseResult.GetValueForOption(screenshotIdOption),
+                ctx.ParseResult.GetValueForOption(screenshotSelectorOption),
+                ctx.ParseResult.GetValueForOption(screenshotOverwriteOption));
+        });
         mauiCommand.Add(mauiScreenshotCmd);
 
         // MAUI recording subcommands
@@ -315,9 +393,22 @@ class Program
         mauiCommand.Add(mauiScrollCmd);
 
         // MAUI focus
-        var focusIdArg = new Argument<string>("elementId", "Element ID to focus");
-        var mauiFocusCmd = new Command("focus", "Set focus to element") { focusIdArg };
-        mauiFocusCmd.SetHandler(async (host, port, json, noJson, id) => await MauiFocusAsync(host, port, OutputWriter.ResolveJsonMode(json, noJson), id), agentHostOption, agentPortOption, jsonOption, noJsonOption, focusIdArg);
+        var focusIdArg = new Argument<string?>("elementId", () => null, "Element ID to focus (optional if --automationId, --type, or --text is used)");
+        var mauiFocusCmd = new Command("focus", "Set focus to element") { focusIdArg, resolveAutoIdOption, resolveTypeOption, resolveTextOption, resolveIndexOption };
+        mauiFocusCmd.SetHandler(async (ctx) =>
+        {
+            var host = ctx.ParseResult.GetValueForOption(agentHostOption)!;
+            var port = ctx.ParseResult.GetValueForOption(agentPortOption);
+            var isJson = OutputWriter.ResolveJsonMode(ctx.ParseResult.GetValueForOption(jsonOption), ctx.ParseResult.GetValueForOption(noJsonOption));
+            var id = ctx.ParseResult.GetValueForArgument(focusIdArg);
+            var autoId = ctx.ParseResult.GetValueForOption(resolveAutoIdOption);
+            var type = ctx.ParseResult.GetValueForOption(resolveTypeOption);
+            var text = ctx.ParseResult.GetValueForOption(resolveTextOption);
+            var index = ctx.ParseResult.GetValueForOption(resolveIndexOption);
+            var resolvedId = await ResolveElementIdAsync(host, port, isJson, id, autoId, type, text, index);
+            if (resolvedId == null) return;
+            await MauiFocusAsync(host, port, isJson, resolvedId);
+        });
         mauiCommand.Add(mauiFocusCmd);
 
         // MAUI resize
@@ -365,6 +456,25 @@ class Program
         alertCommand.Add(alertTreeCmd);
 
         mauiCommand.Add(alertCommand);
+
+        // MAUI assert
+        var assertIdOption = new Option<string?>("--id", "Element ID to assert on");
+        var assertAutoIdOption = new Option<string?>("--automationId", "Resolve element by AutomationId");
+        var assertPropertyArg = new Argument<string>("propertyName", "Property to check");
+        var assertEqualsArg = new Argument<string>("expectedValue", "Expected value");
+        var mauiAssertCmd = new Command("assert", "Assert element property value") { assertIdOption, assertAutoIdOption, assertPropertyArg, assertEqualsArg };
+        mauiAssertCmd.SetHandler(async (ctx) =>
+        {
+            var host = ctx.ParseResult.GetValueForOption(agentHostOption)!;
+            var port = ctx.ParseResult.GetValueForOption(agentPortOption);
+            var isJson = OutputWriter.ResolveJsonMode(ctx.ParseResult.GetValueForOption(jsonOption), ctx.ParseResult.GetValueForOption(noJsonOption));
+            var id = ctx.ParseResult.GetValueForOption(assertIdOption);
+            var autoId = ctx.ParseResult.GetValueForOption(assertAutoIdOption);
+            var prop = ctx.ParseResult.GetValueForArgument(assertPropertyArg);
+            var expected = ctx.ParseResult.GetValueForArgument(assertEqualsArg);
+            await MauiAssertAsync(host, port, isJson, id, autoId, prop, expected);
+        });
+        mauiCommand.Add(mauiAssertCmd);
 
         // MAUI permission subcommands (iOS simulator only — uses xcrun simctl privacy)
         var permissionCommand = new Command("permission", "Manage iOS simulator permissions");
@@ -560,6 +670,22 @@ class Program
             Console.WriteLine($"maui-devflow {version}");
         });
         rootCommand.Add(versionCmd);
+
+        // ===== commands command (schema discovery) =====
+        var commandsCmd = new Command("commands", "List all available commands (machine-readable schema discovery)");
+        commandsCmd.SetHandler((json, noJson) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            var cmds = GetCommandDescriptions();
+            OutputWriter.WriteResult(cmds, isJson, list =>
+            {
+                Console.WriteLine($"{"Command",-35} {"Mutating",-10} {"Description"}");
+                Console.WriteLine(new string('-', 85));
+                foreach (var c in list)
+                    Console.WriteLine($"{c.Command,-35} {(c.Mutating ? "yes" : "no"),-10} {c.Description}");
+            });
+        }, jsonOption, noJsonOption);
+        rootCommand.Add(commandsCmd);
 
         _parser = new CommandLineBuilder(rootCommand)
             .UseDefaults()
@@ -978,6 +1104,201 @@ class Program
         return JsonSerializer.Serialize(element, new JsonSerializerOptions { WriteIndented = true });
     }
 
+    // ===== Element Resolution Helper =====
+
+    /// <summary>
+    /// Resolve an element ID from either a direct ID or query options (--automationId, --type, --text).
+    /// Returns null and writes error if resolution fails.
+    /// </summary>
+    private static async Task<string?> ResolveElementIdAsync(string host, int port, bool json,
+        string? elementId, string? automationId, string? type, string? text, int index)
+    {
+        // Direct ID takes priority
+        if (!string.IsNullOrWhiteSpace(elementId))
+        {
+            ValidateElementId(elementId, json);
+            return elementId;
+        }
+
+        // Need at least one resolution option
+        if (string.IsNullOrWhiteSpace(automationId) && string.IsNullOrWhiteSpace(type) && string.IsNullOrWhiteSpace(text))
+        {
+            OutputWriter.WriteError("Provide an element ID or use --automationId, --type, or --text to resolve", json, "InvocationError");
+            _errorOccurred = true;
+            return null;
+        }
+
+        try
+        {
+            using var client = new MauiDevFlow.Driver.AgentClient(host, port);
+            var results = await client.QueryAsync(type, automationId, text);
+
+            if (results.Count == 0)
+            {
+                var criteria = new List<string>();
+                if (automationId != null) criteria.Add($"automationId=\"{automationId}\"");
+                if (type != null) criteria.Add($"type=\"{type}\"");
+                if (text != null) criteria.Add($"text=\"{text}\"");
+                OutputWriter.WriteError($"No elements found matching {string.Join(", ", criteria)}", json,
+                    suggestions: new[] { "Run 'MAUI tree' to see available elements", "Check automationId spelling" });
+                _errorOccurred = true;
+                return null;
+            }
+
+            if (index >= results.Count)
+            {
+                OutputWriter.WriteError($"Index {index} out of range (found {results.Count} element(s))", json, "RuntimeError",
+                    suggestions: new[] { $"Use --index 0 through {results.Count - 1}" });
+                _errorOccurred = true;
+                return null;
+            }
+
+            return results[index].Id;
+        }
+        catch (Exception ex)
+        {
+            OutputWriter.WriteError(ex.Message, json);
+            _errorOccurred = true;
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Validate element ID for common agent mistakes (control chars, embedded query params).
+    /// </summary>
+    private static void ValidateElementId(string id, bool json)
+    {
+        if (id.Any(c => c < 0x20))
+        {
+            OutputWriter.WriteError($"Element ID contains control characters: '{id}'", json, "InvocationError",
+                suggestions: new[] { "Element IDs should not contain control characters", "Run 'MAUI tree' to get valid IDs" });
+            _errorOccurred = true;
+            return;
+        }
+        if (id.Contains('?') || id.Contains('#'))
+        {
+            OutputWriter.WriteError($"Element ID contains '?' or '#': '{id}' — this looks like a URL fragment, not an element ID", json, "InvocationError",
+                suggestions: new[] { "Run 'MAUI tree' to get valid element IDs" });
+            _errorOccurred = true;
+            return;
+        }
+        if (id.Contains('%'))
+        {
+            Console.Error.WriteLine($"Warning: Element ID contains '%': '{id}' — possible double-encoding");
+        }
+    }
+
+    /// <summary>
+    /// Handle post-action flags (--and-screenshot, --and-tree) after a mutating command.
+    /// </summary>
+    private static async Task HandlePostActionFlags(string host, int port, bool json,
+        bool hasAndScreenshot, string? andScreenshotPath, bool andTree, int andTreeDepth)
+    {
+        if (hasAndScreenshot)
+        {
+            await MauiScreenshotAsync(host, port, json, andScreenshotPath, null, null, null);
+        }
+        if (andTree)
+        {
+            await MauiTreeAsync(host, port, json, andTreeDepth, null, null, null);
+        }
+    }
+
+    // ===== Assert Command =====
+
+    private static async Task MauiAssertAsync(string host, int port, bool json, string? elementId, string? automationId, string propertyName, string expectedValue)
+    {
+        try
+        {
+            var resolvedId = await ResolveElementIdAsync(host, port, json, elementId, automationId, null, null, 0);
+            if (resolvedId == null) return;
+
+            using var client = new MauiDevFlow.Driver.AgentClient(host, port);
+            var actualValue = await client.GetPropertyAsync(resolvedId, propertyName);
+
+            var passed = string.Equals(actualValue, expectedValue, StringComparison.Ordinal);
+            if (json)
+            {
+                OutputWriter.WriteResult(new { passed, property = propertyName, expected = expectedValue, actual = actualValue, elementId = resolvedId }, json);
+            }
+            else
+            {
+                if (passed)
+                    Console.WriteLine($"PASS: {propertyName} == \"{expectedValue}\"");
+                else
+                {
+                    Console.WriteLine($"FAIL: {propertyName} expected \"{expectedValue}\" but got \"{actualValue ?? "(null)"}\"");
+                    _errorOccurred = true;
+                }
+            }
+            if (!passed) _errorOccurred = true;
+        }
+        catch (Exception ex) { OutputWriter.WriteError(ex.Message, json); _errorOccurred = true; }
+    }
+
+    // ===== Command Descriptions (Schema Discovery) =====
+
+    private record CommandDescription(string Command, string Description, bool Mutating);
+
+    private static List<CommandDescription> GetCommandDescriptions() => new()
+    {
+        new("MAUI status", "Check agent connection and app info", false),
+        new("MAUI tree", "Dump visual element tree", false),
+        new("MAUI query", "Find elements by type, automationId, text, or CSS selector", false),
+        new("MAUI element", "Get detailed element info by ID", false),
+        new("MAUI hittest", "Find elements at screen coordinates", false),
+        new("MAUI tap", "Tap a UI element", true),
+        new("MAUI fill", "Fill text into an input element", true),
+        new("MAUI clear", "Clear text from an input element", true),
+        new("MAUI focus", "Set focus to an element", true),
+        new("MAUI navigate", "Navigate to a Shell route", true),
+        new("MAUI scroll", "Scroll content or scroll element into view", true),
+        new("MAUI resize", "Resize app window", true),
+        new("MAUI property", "Get element property value", false),
+        new("MAUI set-property", "Set element property value", true),
+        new("MAUI screenshot", "Take screenshot of app or element", false),
+        new("MAUI assert", "Assert element property equals expected value", false),
+        new("MAUI recording start", "Start screen recording", true),
+        new("MAUI recording stop", "Stop screen recording", true),
+        new("MAUI recording status", "Check recording status", false),
+        new("MAUI alert detect", "Check if a system dialog is visible", false),
+        new("MAUI alert dismiss", "Dismiss a system dialog", true),
+        new("MAUI alert tree", "Show accessibility tree for dialog detection", false),
+        new("MAUI permission grant", "Grant iOS simulator permission", true),
+        new("MAUI permission revoke", "Revoke iOS simulator permission", true),
+        new("MAUI permission reset", "Reset iOS simulator permission", true),
+        new("MAUI logs", "Fetch or stream application logs", false),
+        new("MAUI network", "Monitor HTTP network requests (live)", false),
+        new("MAUI network list", "List recent network requests", false),
+        new("MAUI network detail", "Show full network request details", false),
+        new("MAUI network clear", "Clear network request buffer", true),
+        new("cdp webviews", "List available CDP WebViews", false),
+        new("cdp status", "Check CDP connection status", false),
+        new("cdp Browser getVersion", "Get browser version", false),
+        new("cdp Runtime evaluate", "Evaluate JavaScript expression", false),
+        new("cdp DOM getDocument", "Get DOM document tree", false),
+        new("cdp DOM querySelector", "Find element by CSS selector", false),
+        new("cdp DOM querySelectorAll", "Find all elements by CSS selector", false),
+        new("cdp DOM getOuterHTML", "Get element outer HTML", false),
+        new("cdp Input click", "Click element by CSS selector", true),
+        new("cdp Input insertText", "Insert text at cursor", true),
+        new("cdp Input fill", "Fill form field by CSS selector", true),
+        new("cdp Page navigate", "Navigate WebView to URL", true),
+        new("cdp Page reload", "Reload WebView page", true),
+        new("cdp Page captureScreenshot", "Take WebView screenshot", false),
+        new("cdp snapshot", "Get simplified DOM snapshot", false),
+        new("cdp source", "Get page HTML source", false),
+        new("list", "List all connected agents", false),
+        new("wait", "Wait for an agent to connect", false),
+        new("batch", "Execute commands from stdin", true),
+        new("broker start", "Start the broker daemon", true),
+        new("broker stop", "Stop the broker daemon", true),
+        new("broker status", "Show broker status", false),
+        new("broker log", "Show broker log", false),
+        new("commands", "List all available commands", false),
+        new("version", "Show CLI version", false),
+    };
+
     // ===== Update Skill Command =====
 
     private const string SkillRepo = "Redth/MauiDevFlow";
@@ -1362,10 +1683,18 @@ class Program
         catch (Exception ex) { OutputWriter.WriteError(ex.Message, json, suggestions: new[] { "Run 'MAUI tree' to refresh element IDs" }); _errorOccurred = true; }
     }
 
-    private static async Task MauiScreenshotAsync(string host, int port, bool json, string? output, int? window, string? id, string? selector)
+    private static async Task MauiScreenshotAsync(string host, int port, bool json, string? output, int? window, string? id, string? selector, bool overwrite = false)
     {
         try
         {
+            var filename = output ?? $"screenshot_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+            if (!overwrite && File.Exists(filename))
+            {
+                OutputWriter.WriteError($"File already exists: {Path.GetFullPath(filename)} (use --overwrite to replace)", json, "InvocationError");
+                _errorOccurred = true;
+                return;
+            }
+
             using var client = new MauiDevFlow.Driver.AgentClient(host, port);
             var data = await client.ScreenshotAsync(window, id, selector);
             if (data == null)
@@ -1374,7 +1703,6 @@ class Program
                 _errorOccurred = true;
                 return;
             }
-            var filename = output ?? $"screenshot_{DateTime.Now:yyyyMMdd_HHmmss}.png";
             await File.WriteAllBytesAsync(filename, data);
             var fullPath = Path.GetFullPath(filename);
             if (json)
