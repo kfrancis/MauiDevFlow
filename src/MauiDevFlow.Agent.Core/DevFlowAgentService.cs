@@ -547,6 +547,10 @@ public class DevFlowAgentService : IDisposable
     {
         if (_app == null) return HttpResponse.Error("Agent not bound to app");
 
+        int? maxWidth = null;
+        if (request.QueryParams.TryGetValue("maxWidth", out var mwStr) && int.TryParse(mwStr, out var mw) && mw > 0)
+            maxWidth = mw;
+
         // Check for fullscreen mode (captures all windows including dialogs)
         if (request.QueryParams.TryGetValue("fullscreen", out var fs) &&
             fs.Equals("true", StringComparison.OrdinalIgnoreCase))
@@ -555,7 +559,7 @@ public class DevFlowAgentService : IDisposable
             {
                 var pngData = await CaptureFullScreenAsync();
                 if (pngData != null)
-                    return HttpResponse.Png(pngData);
+                    return HttpResponse.Png(ResizePngIfNeeded(pngData, maxWidth));
                 return HttpResponse.Error("Full-screen capture not supported on this platform");
             }
             catch (Exception ex)
@@ -582,7 +586,7 @@ public class DevFlowAgentService : IDisposable
                 if (pngData == null)
                     return HttpResponse.Error($"Capture returned null for element '{elementId}'");
 
-                return HttpResponse.Png(pngData);
+                return HttpResponse.Png(ResizePngIfNeeded(pngData, maxWidth));
             }
             catch (Exception ex)
             {
@@ -617,7 +621,7 @@ public class DevFlowAgentService : IDisposable
                 if (pngData == null)
                     return HttpResponse.Error($"Capture returned null for element '{matchId}'");
 
-                return HttpResponse.Png(pngData);
+                return HttpResponse.Png(ResizePngIfNeeded(pngData, maxWidth));
             }
             catch (FormatException ex)
             {
@@ -673,7 +677,7 @@ public class DevFlowAgentService : IDisposable
             if (pngData == null)
                 return HttpResponse.Error("Failed to capture screenshot");
 
-            return HttpResponse.Png(pngData);
+            return HttpResponse.Png(ResizePngIfNeeded(pngData, maxWidth));
         }
         catch (Exception ex)
         {
@@ -707,6 +711,36 @@ public class DevFlowAgentService : IDisposable
     protected virtual Task<byte[]?> CaptureFullScreenAsync()
     {
         return Task.FromResult<byte[]?>(null);
+    }
+
+    /// <summary>
+    /// Resizes a PNG image if it exceeds the specified max width, preserving aspect ratio.
+    /// HiDPI displays (2x, 3x) produce screenshots much larger than needed for AI grounding.
+    /// </summary>
+    private static byte[] ResizePngIfNeeded(byte[] pngData, int? maxWidth)
+    {
+        if (maxWidth == null || maxWidth <= 0) return pngData;
+
+        try
+        {
+            using var original = SkiaSharp.SKBitmap.Decode(pngData);
+            if (original == null || original.Width <= maxWidth.Value) return pngData;
+
+            var scale = (float)maxWidth.Value / original.Width;
+            var newHeight = (int)(original.Height * scale);
+
+            using var resized = original.Resize(new SkiaSharp.SKImageInfo(maxWidth.Value, newHeight), SkiaSharp.SKFilterQuality.Medium);
+            if (resized == null) return pngData;
+
+            using var image = SkiaSharp.SKImage.FromBitmap(resized);
+            using var encoded = image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+            return encoded.ToArray();
+        }
+        catch
+        {
+            // If resize fails for any reason, return original unchanged
+            return pngData;
+        }
     }
 
     private async Task<HttpResponse> HandleProperty(HttpRequest request)

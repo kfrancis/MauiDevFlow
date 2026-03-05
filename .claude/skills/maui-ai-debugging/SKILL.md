@@ -159,8 +159,8 @@ if the build fails.
 4. `maui-devflow MAUI query --type Entry --fields "id,text,automationId"` — all Entry fields with specific fields
 5. `maui-devflow MAUI element <id>` — get full details (type, bounds, visibility, children)
 6. `maui-devflow MAUI property <id> Text` — read any property by name
-7. `maui-devflow MAUI screenshot --output screen.png` — visual verification
-8. `maui-devflow MAUI screenshot --id <elementId> --output el.png` — element-only screenshot
+7. `maui-devflow MAUI screenshot --output screen.png --max-width 800` — visual verification (resized for AI)
+8. `maui-devflow MAUI screenshot --id <elementId> --output el.png --max-width 800` — element-only screenshot
 9. `maui-devflow MAUI screenshot --selector "Button" --output btn.png` — screenshot by CSS selector
 
 **Property inspection** is more reliable than screenshots for verifying exact runtime values:
@@ -325,7 +325,7 @@ resolution options are provided.
 | `MAUI clear [elementId] [--automationId A] [--type T] [--text T] [--index N] [--and-screenshot [path]] [--and-tree]` | Clear text. elementId optional when using resolution options |
 | `MAUI focus [elementId] [--automationId A] [--type T] [--text T] [--index N]` | Set focus. elementId optional when using resolution options |
 | `MAUI assert [--id ID] [--automationId A] <property> <expected>` | Assert element property value. Exit 0 if match, 1 if mismatch. Ideal for verification without screenshots |
-| `MAUI screenshot [--output path.png] [--window W] [--id ID] [--selector SEL] [--overwrite]` | PNG screenshot. `--overwrite` replaces existing file (default: fail if exists) |
+| `MAUI screenshot [--output path.png] [--window W] [--id ID] [--selector SEL] [--overwrite] [--max-width N]` | PNG screenshot. `--max-width 800` resizes for AI agents (HiDPI screens produce 2-3x larger images than needed). `--overwrite` replaces existing file |
 | `MAUI property <elementId> <prop>` | Read property (Text, IsVisible, FontSize, etc.) |
 | `MAUI set-property <elementId> <prop> <value>` | Set property (live editing — colors, text, sizes, etc.) |
 | `MAUI element <elementId>` | Full element JSON (type, bounds, children, etc.) |
@@ -470,6 +470,20 @@ call, look at where the leaf-level controls (Button, Entry, Label) appear and re
 Use it for all subsequent tree calls in the same session. If you navigate to a new page that seems
 deeper, bump the depth up. This avoids both truncating useful content and wasting tokens on
 excessively deep dumps.
+
+### Screenshot Size Reduction
+Modern devices have HiDPI displays (2x, 3x scale factors) that produce screenshots 2-3x larger
+than needed for visual grounding. A full-screen iPhone screenshot can be 1290×2796 pixels (~3MB).
+For AI understanding, 800px wide is usually plenty.
+
+- **Always use `--max-width 800`** on screenshots to reduce image size and token cost.
+  ```bash
+  maui-devflow MAUI screenshot --output screen.png --max-width 800
+  maui-devflow MAUI screenshot --id <elementId> --output el.png --max-width 800
+  ```
+- The resize happens server-side (in the agent) before transfer, so it also reduces network time.
+- For detailed pixel-level inspection (e.g., verifying exact colors or alignment), omit `--max-width`
+  to get the full-resolution capture.
 
 ### Eliminating Round-Trips
 - **Use implicit resolution** instead of query-then-act:

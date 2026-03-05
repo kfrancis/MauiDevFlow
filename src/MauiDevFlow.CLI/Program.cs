@@ -307,7 +307,8 @@ class Program
         var screenshotIdOption = new Option<string?>("--id", "Element ID to capture");
         var screenshotSelectorOption = new Option<string?>("--selector", "CSS selector to capture (first match)");
         var screenshotOverwriteOption = new Option<bool>("--overwrite", () => false, "Overwrite existing file (default: fail if exists)");
-        var mauiScreenshotCmd = new Command("screenshot", "Take screenshot") { screenshotOutputOption, windowOption, screenshotIdOption, screenshotSelectorOption, screenshotOverwriteOption };
+        var screenshotMaxWidthOption = new Option<int?>("--max-width", "Resize screenshot to this max width (preserves aspect ratio). Reduces file size for AI agents on HiDPI displays");
+        var mauiScreenshotCmd = new Command("screenshot", "Take screenshot") { screenshotOutputOption, windowOption, screenshotIdOption, screenshotSelectorOption, screenshotOverwriteOption, screenshotMaxWidthOption };
         mauiScreenshotCmd.SetHandler(async (ctx) =>
         {
             var host = ctx.ParseResult.GetValueForOption(agentHostOption)!;
@@ -318,7 +319,8 @@ class Program
                 ctx.ParseResult.GetValueForOption(windowOption),
                 ctx.ParseResult.GetValueForOption(screenshotIdOption),
                 ctx.ParseResult.GetValueForOption(screenshotSelectorOption),
-                ctx.ParseResult.GetValueForOption(screenshotOverwriteOption));
+                ctx.ParseResult.GetValueForOption(screenshotOverwriteOption),
+                ctx.ParseResult.GetValueForOption(screenshotMaxWidthOption));
         });
         mauiCommand.Add(mauiScreenshotCmd);
 
@@ -1196,7 +1198,7 @@ class Program
     {
         if (hasAndScreenshot)
         {
-            await MauiScreenshotAsync(host, port, json, andScreenshotPath, null, null, null);
+            await MauiScreenshotAsync(host, port, json, andScreenshotPath, null, null, null, false, null);
         }
         if (andTree)
         {
@@ -1683,7 +1685,7 @@ class Program
         catch (Exception ex) { OutputWriter.WriteError(ex.Message, json, suggestions: new[] { "Run 'MAUI tree' to refresh element IDs" }); _errorOccurred = true; }
     }
 
-    private static async Task MauiScreenshotAsync(string host, int port, bool json, string? output, int? window, string? id, string? selector, bool overwrite = false)
+    private static async Task MauiScreenshotAsync(string host, int port, bool json, string? output, int? window, string? id, string? selector, bool overwrite = false, int? maxWidth = null)
     {
         try
         {
@@ -1696,7 +1698,7 @@ class Program
             }
 
             using var client = new MauiDevFlow.Driver.AgentClient(host, port);
-            var data = await client.ScreenshotAsync(window, id, selector);
+            var data = await client.ScreenshotAsync(window, id, selector, maxWidth);
             if (data == null)
             {
                 OutputWriter.WriteError("Failed to capture screenshot", json);
@@ -1707,12 +1709,13 @@ class Program
             var fullPath = Path.GetFullPath(filename);
             if (json)
             {
-                OutputWriter.WriteResult(new { path = fullPath, size = data.Length }, json);
+                OutputWriter.WriteResult(new { path = fullPath, size = data.Length, maxWidth = maxWidth }, json);
             }
             else
             {
                 var target = id != null ? $" (element: {id})" : selector != null ? $" (selector: {selector})" : "";
-                Console.WriteLine($"Screenshot saved: {fullPath} ({data.Length} bytes){target}");
+                var resized = maxWidth != null ? $" (max-width: {maxWidth}px)" : "";
+                Console.WriteLine($"Screenshot saved: {fullPath} ({data.Length} bytes){target}{resized}");
             }
         }
         catch (Exception ex) { OutputWriter.WriteError(ex.Message, json); _errorOccurred = true; }

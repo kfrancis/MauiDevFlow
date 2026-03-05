@@ -434,3 +434,4 @@ FodyWeavers.xsd
 
 # Local skill version tracking (written by maui-devflow update-skill)
 .skill-version
+maui-ai-debugging-workspace/
