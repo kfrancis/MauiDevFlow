@@ -31,17 +31,24 @@ public sealed class ConsoleLogCapture : IDisposable
     }
 
     /// <summary>
-    /// Redirects Console.Out, Console.Error, and adds a TraceListener.
+    /// Redirects Console.Out, Console.Error, and/or adds a TraceListener based on flags.
     /// Safe to call multiple times — only installs once.
     /// </summary>
-    public void Install()
+    public void Install(bool captureConsole = true, bool captureTrace = true)
     {
         if (_installed || _disposed) return;
         _installed = true;
 
-        Console.SetOut(_outWriter);
-        Console.SetError(_errorWriter);
-        Trace.Listeners.Add(_traceListener);
+        if (captureConsole)
+        {
+            Console.SetOut(_outWriter);
+            Console.SetError(_errorWriter);
+        }
+
+        if (captureTrace)
+        {
+            Trace.Listeners.Add(_traceListener);
+        }
     }
 
     /// <summary>

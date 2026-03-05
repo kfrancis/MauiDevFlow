@@ -95,12 +95,14 @@ public static class AgentServiceExtensions
             var logDir = Path.Combine(FileSystem.CacheDirectory, "mauidevflow-logs");
             var logProvider = new FileLogProvider(logDir, options.MaxLogFileSize, options.MaxLogFiles);
             service.SetLogProvider(logProvider);
-            builder.Logging.AddProvider(logProvider);
 
-            if (options.CaptureConsoleOutput)
+            if (options.CaptureILogger)
+                builder.Logging.AddProvider(logProvider);
+
+            if (options.CaptureConsole || options.CaptureTrace)
             {
                 var capture = new ConsoleLogCapture(logProvider.Writer);
-                capture.Install();
+                capture.Install(captureConsole: options.CaptureConsole, captureTrace: options.CaptureTrace);
             }
         }
 
