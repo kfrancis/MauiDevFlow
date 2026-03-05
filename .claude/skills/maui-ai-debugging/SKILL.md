@@ -153,14 +153,15 @@ if the build fails.
 ### 4. Inspect and Interact
 
 **Typical inspection flow:**
-1. `maui-devflow MAUI tree` — see the full visual tree with element IDs, types, text, bounds
+1. `maui-devflow MAUI tree --depth 3 --fields "id,type,text,automationId"` — shallow tree with key fields only
 2. `maui-devflow MAUI tree --window 1` — filter to a specific window (0-based index)
 3. `maui-devflow MAUI query --automationId "MyButton"` — find specific elements
-4. `maui-devflow MAUI element <id>` — get full details (type, bounds, visibility, children)
-5. `maui-devflow MAUI property <id> Text` — read any property by name
-6. `maui-devflow MAUI screenshot --output screen.png` — visual verification
-7. `maui-devflow MAUI screenshot --id <elementId> --output el.png` — element-only screenshot
-8. `maui-devflow MAUI screenshot --selector "Button" --output btn.png` — screenshot by CSS selector
+4. `maui-devflow MAUI query --type Entry --fields "id,text,automationId"` — all Entry fields with specific fields
+5. `maui-devflow MAUI element <id>` — get full details (type, bounds, visibility, children)
+6. `maui-devflow MAUI property <id> Text` — read any property by name
+7. `maui-devflow MAUI screenshot --output screen.png` — visual verification
+8. `maui-devflow MAUI screenshot --id <elementId> --output el.png` — element-only screenshot
+9. `maui-devflow MAUI screenshot --selector "Button" --output btn.png` — screenshot by CSS selector
 
 **Property inspection** is more reliable than screenshots for verifying exact runtime values:
 ```bash
@@ -177,10 +178,11 @@ Supports: string, bool, int, double, Color (named/hex), Thickness, enums. Change
 until the app restarts — safe for experimentation.
 
 **Typical interaction flow:**
-1. `maui-devflow MAUI fill <entryId> "text"` — type into Entry/Editor fields
-2. `maui-devflow MAUI tap <buttonId>` — tap buttons, checkboxes, list items
-3. `maui-devflow MAUI clear <entryId>` — clear text fields
-4. Take screenshot to verify result
+1. `maui-devflow MAUI fill --automationId "MyEntry" "text"` — type into Entry/Editor fields (no query needed)
+2. `maui-devflow MAUI tap --automationId "MyButton"` — tap buttons, checkboxes, list items
+3. `maui-devflow MAUI clear --automationId "MyEntry"` — clear text fields
+4. Or use element IDs from tree/query: `maui-devflow MAUI tap <elementId>`
+5. Take screenshot to verify result, or use `--and-screenshot` on the action
 
 **Blazor WebView (if applicable):**
 1. `maui-devflow cdp snapshot` — DOM tree as accessible text (best for AI)
@@ -298,40 +300,55 @@ Connecting clients receive a replay of buffered history, then live entries as th
 
 ### maui-devflow MAUI (Native Agent)
 
-Global options: `--agent-host` (default localhost), `--agent-port` (auto-discovered via broker), `--platform`.
+Global options (work on any subcommand):
+- `--agent-host` (default localhost), `--agent-port` (auto-discovered via broker), `--platform`
+- `--json` — force JSON output. Auto-enabled when stdout is piped/redirected (TTY auto-detection).
+- `--no-json` — force human-readable output even when piped.
+- Env var: `MAUIDEVFLOW_OUTPUT=json` for persistent JSON mode.
 
-These options work on any subcommand position: `maui-devflow MAUI status --agent-port 10224`
-or `maui-devflow --agent-port 10224 MAUI status` — both are valid.
+**Implicit element resolution:** Commands that take an `<elementId>` (tap, fill, clear, focus)
+also accept `--automationId`, `--type`, `--text`, `--index` to resolve the element in a single
+call. This eliminates the query→act round-trip. The `<elementId>` argument is optional when
+resolution options are provided.
+
+**Post-action flags:** tap, fill, clear accept `--and-screenshot [path]`, `--and-tree`,
+`--and-tree-depth N` to return verification data alongside the action result.
 
 | Command | Description |
 |---------|-------------|
 | `MAUI status [--window W]` | Agent connection status, platform, app name, window count |
-| `MAUI tree [--depth N] [--window W]` | Visual tree (IDs, types, text, bounds). Depth 0=unlimited. Window is 0-based index; omit for all windows |
-| `MAUI query --type T --automationId A --text T` | Find elements (any/all filters) |
+| `MAUI tree [--depth N] [--window W] [--fields F] [--format compact]` | Visual tree. `--fields "id,type,text"` projects specific fields. `--format compact` returns only id, type, text, automationId, bounds |
+| `MAUI query [--type T] [--automationId A] [--text T] [--selector S] [--fields F] [--format compact] [--wait-until exists\|gone] [--timeout N]` | Find elements. `--wait-until` polls until condition met (default 30s timeout). `--fields` and `--format` same as tree |
 | `MAUI hittest <x> <y> [--window W]` | Find elements at a point (deepest first). Returns IDs, types, bounds |
-| `MAUI tap <elementId>` | Tap an element |
-| `MAUI fill <elementId> <text>` | Fill text into Entry/Editor |
-| `MAUI clear <elementId>` | Clear text from element |
-| `MAUI screenshot [--output path.png] [--window W] [--id ID] [--selector SEL]` | PNG screenshot. Capture full window or a specific element by ID/selector. Window is 0-based index; default first window |
+| `MAUI tap [elementId] [--automationId A] [--type T] [--text T] [--index N] [--and-screenshot [path]] [--and-tree] [--and-tree-depth N]` | Tap element by ID or implicit resolution |
+| `MAUI fill [elementId] <text> [--automationId A] [--type T] [--text T] [--index N] [--and-screenshot [path]] [--and-tree]` | Fill text into Entry/Editor. elementId optional when using resolution options |
+| `MAUI clear [elementId] [--automationId A] [--type T] [--text T] [--index N] [--and-screenshot [path]] [--and-tree]` | Clear text. elementId optional when using resolution options |
+| `MAUI focus [elementId] [--automationId A] [--type T] [--text T] [--index N]` | Set focus. elementId optional when using resolution options |
+| `MAUI assert [--id ID] [--automationId A] <property> <expected>` | Assert element property value. Exit 0 if match, 1 if mismatch. Ideal for verification without screenshots |
+| `MAUI screenshot [--output path.png] [--window W] [--id ID] [--selector SEL] [--overwrite]` | PNG screenshot. `--overwrite` replaces existing file (default: fail if exists) |
 | `MAUI property <elementId> <prop>` | Read property (Text, IsVisible, FontSize, etc.) |
 | `MAUI set-property <elementId> <prop> <value>` | Set property (live editing — colors, text, sizes, etc.) |
 | `MAUI element <elementId>` | Full element JSON (type, bounds, children, etc.) |
 | `MAUI navigate <route>` | Shell navigation (e.g. `//native`, `//blazor`) |
 | `MAUI scroll [--element id] [--dx N] [--dy N] [--window W]` | Scroll by delta or scroll element into view |
-| `MAUI focus <elementId>` | Set focus to element |
 | `MAUI resize <width> <height> [--window W]` | Resize app window. Window is 0-based index; default first window |
-| `MAUI logs [--limit N] [--skip N] [--source S] [--follow] [--json]` | Fetch or stream application logs. `--follow` / `-f` streams in real-time via WebSocket (Ctrl+C to stop). `--json` outputs JSONL. Source: native, webview, or omit for all |
-| `MAUI recording start [--output path] [--timeout 30]` | Start screen recording. Default timeout 30s. Uses platform-native tools (adb screenrecord, xcrun simctl, screencapture, ffmpeg) |
+| `MAUI logs [--limit N] [--skip N] [--source S] [--follow]` | Fetch or stream application logs. `--follow` / `-f` streams in real-time (Ctrl+C to stop). Source: native, webview, or omit for all |
+| `MAUI recording start [--output path] [--timeout 30]` | Start screen recording. Default timeout 30s |
 | `MAUI recording stop` | Stop active recording and save the video file |
 | `MAUI recording status` | Check if a recording is currently in progress |
-| `MAUI network` | Live network monitor — streams HTTP requests in real-time (Ctrl+C to stop). Use `--json` for JSONL output |
-| `MAUI network list [--host H] [--method M] [--json]` | One-shot: dump recent captured HTTP requests as table or JSONL |
+| `MAUI network` | Live network monitor — streams HTTP requests in real-time (Ctrl+C to stop) |
+| `MAUI network list [--host H] [--method M]` | One-shot: dump recent captured HTTP requests |
 | `MAUI network detail <requestId>` | Full request/response details: headers, body, timing |
 | `MAUI network clear` | Clear the captured request buffer |
+| `commands [--json]` | List all available commands with descriptions. `--json` returns machine-readable schema with command names, descriptions, and whether they mutate state |
 
 Element IDs come from `MAUI tree` or `MAUI query`. AutomationId-based elements use their
 AutomationId directly. Others use generated hex IDs. When multiple elements share the same
 AutomationId, suffixes are appended: `TodoCheckBox`, `TodoCheckBox_1`, `TodoCheckBox_2`, etc.
+
+**Element ID lifecycle:** IDs are ephemeral — they're regenerated on each tree walk. After
+navigation, page changes, or significant UI updates, re-query to get fresh IDs. AutomationIds
+are stable across rebuilds (they come from XAML), so prefer `--automationId` for scripted flows.
 
 ### maui-devflow cdp (Blazor WebView CDP)
 
@@ -448,7 +465,7 @@ their input.
   ```bash
   # Instead of: query → get ID → tap
   maui-devflow MAUI tap --automationId "LoginButton"
-  maui-devflow MAUI fill --automationId "Username" --text "admin"
+  maui-devflow MAUI fill --automationId "Username" "admin"
   maui-devflow MAUI tap --type Button --index 0  # first Button
   ```
 - **Use `--wait-until`** instead of polling loops:
