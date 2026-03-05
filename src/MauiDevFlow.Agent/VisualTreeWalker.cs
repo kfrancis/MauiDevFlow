@@ -416,6 +416,24 @@ public class PlatformVisualTreeWalker : VisualTreeWalker
                     }
                 }
 
+                // For FlyoutButton, find the navigation ImageButton
+                if (marker is FlyoutButtonMarker)
+                {
+                    var navButton = FindAndroidNavigationButton(toolbar);
+                    if (navButton != null)
+                    {
+                        var loc = new int[2];
+                        navButton.GetLocationInWindow(loc);
+                        return new BoundsInfo
+                        {
+                            X = loc[0] / density,
+                            Y = loc[1] / density,
+                            Width = navButton.Width / density,
+                            Height = navButton.Height / density
+                        };
+                    }
+                }
+
                 var location = new int[2];
                 toolbar.GetLocationOnScreen(location);
                 var shellLocation = new int[2];
@@ -474,14 +492,45 @@ public class PlatformVisualTreeWalker : VisualTreeWalker
 
     private static Android.Views.View? FindAndroidToolbarButton(AndroidX.AppCompat.Widget.Toolbar toolbar, ToolbarItem ti)
     {
-        // Search toolbar's menu for matching item by title or content description
+        // Search toolbar's descendants recursively — action buttons are nested
+        // inside ActionMenuView/LinearLayoutCompat, not direct children.
+        // ContentDescription may be set to AutomationId or Text, so check both.
+        return FindToolbarButtonRecursive(toolbar, ti);
+
+        static Android.Views.View? FindToolbarButtonRecursive(Android.Views.ViewGroup parent, ToolbarItem ti)
+        {
+            for (int i = 0; i < parent.ChildCount; i++)
+            {
+                var child = parent.GetChildAt(i);
+                if (child == null) continue;
+
+                var desc = child.ContentDescription;
+                if (!string.IsNullOrEmpty(desc))
+                {
+                    if (desc == ti.Text || desc == ti.AutomationId)
+                        return child;
+                }
+                if (child is Android.Widget.TextView tv && tv.Text == ti.Text)
+                    return child;
+
+                if (child is Android.Views.ViewGroup vg)
+                {
+                    var found = FindToolbarButtonRecursive(vg, ti);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+    }
+
+    private static Android.Views.View? FindAndroidNavigationButton(AndroidX.AppCompat.Widget.Toolbar toolbar)
+    {
+        // The navigation/hamburger button is an ImageButton direct child of the toolbar
         for (int i = 0; i < toolbar.ChildCount; i++)
         {
             var child = toolbar.GetChildAt(i);
-            if (child == null) continue;
-            var desc = child.ContentDescription;
-            if (!string.IsNullOrEmpty(ti.Text) && desc == ti.Text) return child;
-            if (child is Android.Widget.TextView tv && tv.Text == ti.Text) return child;
+            if (child is Android.Widget.ImageButton)
+                return child;
         }
         return null;
     }
