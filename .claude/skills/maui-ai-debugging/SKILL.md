@@ -443,6 +443,10 @@ their input.
 - Use `AutomationId` on important MAUI controls for stable element references.
 - For Blazor Hybrid, `cdp snapshot` is the most AI-friendly way to read page state.
 - Port discovery, multi-project setup, and custom ports: see [references/setup.md](references/setup.md#3b-port-configuration).
+- **Shell apps:** Read `AppShell.xaml` to discover routes before navigating. Routes are
+  case-sensitive and often lowercase.
+- **CollectionView items:** Tap the container Grid/StackLayout, not inner Labels/Images.
+- **Ambiguous `--text`:** When text appears on multiple pages, use explicit IDs from `tree`.
 
 ## AI Agent Best Practices
 
@@ -517,6 +521,35 @@ the screenshot dimensions accordingly. This happens server-side before transfer.
 - Prefer `--automationId` for stable references (set in XAML).
 - Use `maui-devflow commands --json` to discover available commands at runtime.
 
+### Shell Navigation
+- **Routes are case-sensitive** and come from `ShellContent Route=""` in XAML, not from
+  `FlyoutItem Title`. Discover routes by reading `AppShell.xaml`:
+  ```bash
+  grep -i 'Route=' AppShell.xaml
+  ```
+- **Flyout menu items** use generated IDs like `FlyoutItem_D_FAULT_FlyoutItem0`. Find them
+  at the top level of the tree output. Don't try to tap Labels inside flyout items.
+- **Flyout dismissal:** After tapping a flyout item, the flyout may stay open. Dismiss with:
+  ```bash
+  maui-devflow MAUI set-property <shellId> FlyoutIsPresented "false"
+  ```
+
+### CollectionView / ListView
+- **Tapping items:** Always tap the item's container (Grid/StackLayout), not inner elements
+  (Label/Image). The item template's root element handles selection.
+- **Scrolling:** `MAUI scroll` uses MAUI's `ScrollView.ScrollToAsync` and does **not** work
+  with `CollectionView` or `ListView` (which use native platform scrolling). Items off-screen
+  appear in the tree with `0x0` or `-1x-1` bounds — tap them by ID regardless (the platform
+  will scroll to make them visible on tap if the app handles `SelectionChanged`).
+
+### Implicit Resolution Gotchas
+- **`--text` searches the entire visual tree**, including hidden pages (other Shell tabs).
+  If the text is ambiguous (e.g., `"+"`, `"OK"`, `"Cancel"`), it may match a wrong element
+  on a different page.
+- **Prefer `--automationId`** for reliable targeting. Fall back to explicit element IDs from
+  `tree`/`query` for elements without AutomationIds.
+- **Use `--type` + `--text` together** to narrow matches when text alone is ambiguous.
+
 ### Canonical Workflows
 
 **Login flow:**
@@ -526,6 +559,17 @@ maui-devflow MAUI fill --automationId "UsernameField" "admin"
 maui-devflow MAUI fill --automationId "PasswordField" "password"
 maui-devflow MAUI tap --automationId "LoginButton" --and-screenshot
 maui-devflow MAUI query --automationId "HomePage" --wait-until exists --timeout 10
+```
+
+**Shell navigation:**
+```bash
+# Discover routes from XAML
+grep -i 'Route=' AppShell.xaml                              # find route names
+maui-devflow MAUI navigate "//home"                         # navigate to a route
+maui-devflow MAUI tap FlyoutButton                          # open flyout
+maui-devflow MAUI tree --depth 3 --fields "id,type,text"    # find flyout items
+maui-devflow MAUI tap <flyoutItemId>                        # tap item
+maui-devflow MAUI set-property <shellId> FlyoutIsPresented "false"  # dismiss flyout
 ```
 
 **Element inspection:**
