@@ -153,7 +153,7 @@ if the build fails.
 ### 4. Inspect and Interact
 
 **Typical inspection flow:**
-1. `maui-devflow MAUI tree --depth 3 --fields "id,type,text,automationId"` — shallow tree with key fields only
+1. `maui-devflow MAUI tree --depth 15 --fields "id,type,text,automationId"` — tree with key fields only (depth 15 reaches most controls)
 2. `maui-devflow MAUI tree --window 1` — filter to a specific window (0-based index)
 3. `maui-devflow MAUI query --automationId "MyButton"` — find specific elements
 4. `maui-devflow MAUI query --type Entry --fields "id,text,automationId"` — all Entry fields with specific fields
@@ -454,11 +454,22 @@ their input.
 - Check exit codes: 0 = success, non-zero = failure.
 
 ### Reducing Token Usage
-- **Always use `--depth 3`** (or similar) for `MAUI tree` to avoid context overflow from full tree dumps.
+- **Use `--depth 15`** (or higher) for `MAUI tree` — MAUI visual trees are deeply nested (a simple
+  control is often at depth 10-15). Start with `--depth 15`; if you see truncated children, increase.
+  After your first successful tree dump, note the depth where meaningful controls appear and reuse
+  that depth for subsequent calls. If the tree is still too large, combine with `--fields` to reduce width.
 - Use **`--fields "id,type,text,automationId"`** to project only the fields you need.
 - Use **`--format compact`** for minimal tree output (id, type, text, automationId, bounds).
 - **Prefer `MAUI query --automationId`** over full tree traversal — much smaller response.
 - Use **element-level screenshots** (`--id <elementId>`) when you only need to see one control.
+
+### Adaptive Depth Learning
+MAUI app trees vary in depth — a simple app might have controls at depth 8, while a complex app
+with Shell + NavigationPage + nested layouts might need depth 20+. After your first `MAUI tree`
+call, look at where the leaf-level controls (Button, Entry, Label) appear and remember that depth.
+Use it for all subsequent tree calls in the same session. If you navigate to a new page that seems
+deeper, bump the depth up. This avoids both truncating useful content and wasting tokens on
+excessively deep dumps.
 
 ### Eliminating Round-Trips
 - **Use implicit resolution** instead of query-then-act:
@@ -475,7 +486,7 @@ their input.
   ```
 - **Use post-action flags** to verify in one call:
   ```bash
-  maui-devflow MAUI tap abc123 --and-screenshot --and-tree --and-tree-depth 2
+  maui-devflow MAUI tap abc123 --and-screenshot --and-tree --and-tree-depth 5
   ```
 - **Use `MAUI assert`** for quick state checks:
   ```bash
