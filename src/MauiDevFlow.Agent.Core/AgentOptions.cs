@@ -30,6 +30,13 @@ public class AgentOptions
     public bool EnableFileLogging { get; set; } = true;
 
     /// <summary>
+    /// Whether to register the FileLogProvider as an ILoggerProvider so that
+    /// ILogger output is written to the rotating log files. Default: true.
+    /// Requires <see cref="EnableFileLogging"/> to be true.
+    /// </summary>
+    public bool CaptureILogger { get; set; } = true;
+
+    /// <summary>
     /// Maximum size of each log file in bytes before rotation. Default: 1MB.
     /// </summary>
     public long MaxLogFileSize { get; set; } = 1_048_576;
@@ -38,6 +45,19 @@ public class AgentOptions
     /// Maximum number of rotated log files to keep. Default: 5.
     /// </summary>
     public int MaxLogFiles { get; set; } = 5;
+
+    /// <summary>
+    /// Whether to capture Console.Out and Console.Error output into the file log pipeline.
+    /// Output is tee'd — original streams still receive everything. Default: true.
+    /// Requires <see cref="EnableFileLogging"/> to be true.
+    /// </summary>
+    public bool CaptureConsole { get; set; } = true;
+
+    /// <summary>
+    /// Whether to capture Trace/Debug output into the file log pipeline. Default: true.
+    /// Requires <see cref="EnableFileLogging"/> to be true.
+    /// </summary>
+    public bool CaptureTrace { get; set; } = true;
 
     /// <summary>
     /// Whether to intercept HttpClient requests for network monitoring. Default: true.
