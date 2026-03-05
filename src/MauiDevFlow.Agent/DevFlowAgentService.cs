@@ -65,8 +65,13 @@ public class PlatformAgentService : DevFlowAgentService
                 if (platformView != null)
                 {
 #if IOS || MACCATALYST
-                    // Find UIScrollView in the native hierarchy
-                    var uiScrollView = FindNativeAncestor<UIKit.UIScrollView>(platformView as UIKit.UIView);
+                    // Check: view itself → subviews → ancestors
+                    var uiView = platformView as UIKit.UIView;
+                    UIKit.UIScrollView? uiScrollView = uiView as UIKit.UIScrollView;
+                    if (uiScrollView == null)
+                        uiScrollView = FindNativeDescendant<UIKit.UIScrollView>(uiView);
+                    if (uiScrollView == null)
+                        uiScrollView = FindNativeAncestor<UIKit.UIScrollView>(uiView);
                     if (uiScrollView != null)
                     {
                         var offset = uiScrollView.ContentOffset;
@@ -76,22 +81,36 @@ public class PlatformAgentService : DevFlowAgentService
                         return Task.FromResult(true);
                     }
 #elif ANDROID
-                    // Find RecyclerView or ScrollView in the native hierarchy
-                    var recyclerView = FindNativeAncestorAndroid<AndroidX.RecyclerView.Widget.RecyclerView>(platformView as Android.Views.View);
+                    // Check: view itself → descendants → ancestors
+                    var androidView = platformView as Android.Views.View;
+                    var recyclerView = androidView as AndroidX.RecyclerView.Widget.RecyclerView;
+                    if (recyclerView == null)
+                        recyclerView = FindNativeDescendantAndroid<AndroidX.RecyclerView.Widget.RecyclerView>(androidView);
+                    if (recyclerView == null)
+                        recyclerView = FindNativeAncestorAndroid<AndroidX.RecyclerView.Widget.RecyclerView>(androidView);
                     if (recyclerView != null)
                     {
                         recyclerView.ScrollBy((int)deltaX, (int)-deltaY);
                         return Task.FromResult(true);
                     }
-                    var androidScrollView = FindNativeAncestorAndroid<Android.Widget.ScrollView>(platformView as Android.Views.View);
+                    var androidScrollView = androidView as Android.Widget.ScrollView;
+                    if (androidScrollView == null)
+                        androidScrollView = FindNativeDescendantAndroid<Android.Widget.ScrollView>(androidView);
+                    if (androidScrollView == null)
+                        androidScrollView = FindNativeAncestorAndroid<Android.Widget.ScrollView>(androidView);
                     if (androidScrollView != null)
                     {
                         androidScrollView.ScrollBy((int)deltaX, (int)-deltaY);
                         return Task.FromResult(true);
                     }
 #elif WINDOWS
-                    // Find ScrollViewer in the WinUI XAML tree
-                    var scrollViewer = FindWinUIScrollViewer(platformView as Microsoft.UI.Xaml.DependencyObject);
+                    // Check: view itself → descendants → ancestors
+                    var winView = platformView as Microsoft.UI.Xaml.DependencyObject;
+                    var scrollViewer = winView as Microsoft.UI.Xaml.Controls.ScrollViewer;
+                    if (scrollViewer == null)
+                        scrollViewer = FindWinUIDescendant<Microsoft.UI.Xaml.Controls.ScrollViewer>(winView);
+                    if (scrollViewer == null)
+                        scrollViewer = FindWinUIScrollViewer(winView);
                     if (scrollViewer != null)
                     {
                         scrollViewer.ChangeView(
@@ -120,6 +139,18 @@ public class PlatformAgentService : DevFlowAgentService
         }
         return null;
     }
+
+    private static T? FindNativeDescendant<T>(UIKit.UIView? view) where T : UIKit.UIView
+    {
+        if (view == null) return null;
+        if (view is T match) return match;
+        foreach (var subview in view.Subviews)
+        {
+            var found = FindNativeDescendant<T>(subview);
+            if (found != null) return found;
+        }
+        return null;
+    }
 #elif ANDROID
     private static T? FindNativeAncestorAndroid<T>(Android.Views.View? view) where T : Android.Views.View
     {
@@ -128,6 +159,21 @@ public class PlatformAgentService : DevFlowAgentService
         {
             if (current is T match) return match;
             current = current.Parent as Android.Views.View;
+        }
+        return null;
+    }
+
+    private static T? FindNativeDescendantAndroid<T>(Android.Views.View? view) where T : Android.Views.View
+    {
+        if (view == null) return null;
+        if (view is T match) return match;
+        if (view is Android.Views.ViewGroup vg)
+        {
+            for (var i = 0; i < vg.ChildCount; i++)
+            {
+                var found = FindNativeDescendantAndroid<T>(vg.GetChildAt(i));
+                if (found != null) return found;
+            }
         }
         return null;
     }
@@ -145,18 +191,20 @@ public class PlatformAgentService : DevFlowAgentService
             parent = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(parent);
         }
         // Also search children (CollectionView wraps a ScrollViewer internally)
-        return FindWinUIScrollViewerInChildren(obj);
+        return FindWinUIDescendant<Microsoft.UI.Xaml.Controls.ScrollViewer>(obj);
     }
 
-    private static Microsoft.UI.Xaml.Controls.ScrollViewer? FindWinUIScrollViewerInChildren(Microsoft.UI.Xaml.DependencyObject parent)
+    private static T? FindWinUIDescendant<T>(Microsoft.UI.Xaml.DependencyObject? parent) where T : Microsoft.UI.Xaml.DependencyObject
     {
+        if (parent == null) return null;
+        if (parent is T match) return match;
         var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent);
         for (var i = 0; i < count; i++)
         {
             var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
-            if (child is Microsoft.UI.Xaml.Controls.ScrollViewer sv) return sv;
-            var found = FindWinUIScrollViewerInChildren(child);
-            if (found != null) return found;
+            if (child is T found) return found;
+            var descendant = FindWinUIDescendant<T>(child);
+            if (descendant != null) return descendant;
         }
         return null;
     }
