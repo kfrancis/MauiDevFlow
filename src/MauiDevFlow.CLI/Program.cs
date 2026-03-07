@@ -433,35 +433,26 @@ class Program
         // detect
         var detectUdid = new Option<string?>("--udid", "Simulator UDID (auto-detects booted simulator if omitted)");
         var detectPid = new Option<int?>("--pid", "Mac Catalyst app PID (auto-detects if omitted)");
-        var detectPlatform = new Option<string>("--platform", () => "auto", "Platform: maccatalyst, ios, android, windows, or auto");
-        var detectHost = new Option<string>("--agent-host", () => "localhost", "Agent HTTP host");
-        var detectPort = new Option<int>("--agent-port", () => 9223, "Agent HTTP port");
-        var alertDetectCmd = new Command("detect", "Check if an alert/dialog is visible") { detectUdid, detectPid, detectPlatform, detectHost, detectPort };
-        alertDetectCmd.SetHandler(async (udid, pid, platform, host, port, json, noJson) =>
-            await AlertDetectAsync(udid, pid, platform, host, port, OutputWriter.ResolveJsonMode(json, noJson)), detectUdid, detectPid, detectPlatform, detectHost, detectPort, jsonOption, noJsonOption);
+        var alertDetectCmd = new Command("detect", "Check if an alert/dialog is visible") { detectUdid, detectPid };
+        alertDetectCmd.SetHandler(async (udid, pid, host, port, json, noJson) =>
+            await AlertDetectAsync(udid, pid, host, port, OutputWriter.ResolveJsonMode(json, noJson)), detectUdid, detectPid, agentHostOption, agentPortOption, jsonOption, noJsonOption);
         alertCommand.Add(alertDetectCmd);
 
         // dismiss
         var dismissUdid = new Option<string?>("--udid", "Simulator UDID (auto-detects booted simulator if omitted)");
         var dismissPid = new Option<int?>("--pid", "Mac Catalyst app PID (auto-detects if omitted)");
-        var dismissPlatform = new Option<string>("--platform", () => "auto", "Platform: maccatalyst, ios, android, windows, or auto");
-        var dismissHost = new Option<string>("--agent-host", () => "localhost", "Agent HTTP host");
-        var dismissPort = new Option<int>("--agent-port", () => 9223, "Agent HTTP port");
         var dismissButtonArg = new Argument<string?>("button", () => null, "Button label to tap (default: first accept-style button)");
-        var alertDismissCmd = new Command("dismiss", "Dismiss the current alert/dialog") { dismissButtonArg, dismissUdid, dismissPid, dismissPlatform, dismissHost, dismissPort };
-        alertDismissCmd.SetHandler(async (udid, pid, platform, host, port, button, json, noJson) =>
-            await AlertDismissAsync(udid, pid, platform, host, port, button, OutputWriter.ResolveJsonMode(json, noJson)), dismissUdid, dismissPid, dismissPlatform, dismissHost, dismissPort, dismissButtonArg, jsonOption, noJsonOption);
+        var alertDismissCmd = new Command("dismiss", "Dismiss the current alert/dialog") { dismissButtonArg, dismissUdid, dismissPid };
+        alertDismissCmd.SetHandler(async (udid, pid, host, port, button, json, noJson) =>
+            await AlertDismissAsync(udid, pid, host, port, button, OutputWriter.ResolveJsonMode(json, noJson)), dismissUdid, dismissPid, agentHostOption, agentPortOption, dismissButtonArg, jsonOption, noJsonOption);
         alertCommand.Add(alertDismissCmd);
 
         // tree
         var treeUdid = new Option<string?>("--udid", "Simulator UDID (auto-detects booted simulator if omitted)");
         var treePid = new Option<int?>("--pid", "Mac Catalyst app PID (auto-detects if omitted)");
-        var treePlatform = new Option<string>("--platform", () => "auto", "Platform: maccatalyst, ios, android, windows, or auto");
-        var treeHost = new Option<string>("--agent-host", () => "localhost", "Agent HTTP host");
-        var treePort = new Option<int>("--agent-port", () => 9223, "Agent HTTP port");
-        var alertTreeCmd = new Command("tree", "Show raw accessibility tree") { treeUdid, treePid, treePlatform, treeHost, treePort };
-        alertTreeCmd.SetHandler(async (udid, pid, platform, host, port, json, noJson) =>
-            await AlertTreeAsync(udid, pid, platform, host, port, OutputWriter.ResolveJsonMode(json, noJson)), treeUdid, treePid, treePlatform, treeHost, treePort, jsonOption, noJsonOption);
+        var alertTreeCmd = new Command("tree", "Show raw accessibility tree") { treeUdid, treePid };
+        alertTreeCmd.SetHandler(async (udid, pid, host, port, json, noJson) =>
+            await AlertTreeAsync(udid, pid, host, port, OutputWriter.ResolveJsonMode(json, noJson)), treeUdid, treePid, agentHostOption, agentPortOption, jsonOption, noJsonOption);
         alertCommand.Add(alertTreeCmd);
 
         mauiCommand.Add(alertCommand);
@@ -2486,16 +2477,17 @@ class Program
         throw new InvalidOperationException("No booted simulator found. Specify --udid or boot a simulator.");
     }
 
-    private static async Task<string> ResolveAlertPlatformAsync(string platform, string host, int port)
+    private static async Task<string> ResolveAlertPlatformAsync(string? udid, int? pid, string host, int port)
     {
-        var p = platform.ToLowerInvariant();
-        if (p.Contains("catalyst")) return "maccatalyst";
-        if (p.Contains("ios") || p.Contains("simulator")) return "ios-simulator";
-        if (p.Contains("android")) return "android";
-        if (p.Contains("windows") || p.Contains("win")) return "windows";
-        if (p.Contains("linux") || p.Contains("gtk")) return "linux";
+        // If a UDID was explicitly provided, it's an iOS simulator
+        if (!string.IsNullOrEmpty(udid))
+            return "ios-simulator";
 
-        // Auto-detect from agent
+        // If a PID was explicitly provided, it's Mac Catalyst or Windows
+        if (pid.HasValue)
+            return OperatingSystem.IsWindows() ? "windows" : "maccatalyst";
+
+        // Auto-detect from connected agent
         try
         {
             using var client = new MauiDevFlow.Driver.AgentClient(host, port);
@@ -2503,14 +2495,46 @@ class Program
             if (status?.Platform != null)
             {
                 var sp = status.Platform.ToLowerInvariant();
-                if (sp.Contains("catalyst")) return "maccatalyst";
-                if (sp.Contains("android")) return "android";
                 if (sp.Contains("ios")) return "ios-simulator";
+                if (sp.Contains("android")) return "android";
                 if (sp.Contains("windows")) return "windows";
                 if (sp.Contains("linux") || sp.Contains("gtk")) return "linux";
+                // For MacCatalyst, don't return immediately — check if there's a
+                // booted iOS simulator first, since it's more likely the user wants
+                // iOS dialog detection (Mac Catalyst dialogs are less common)
             }
         }
         catch { }
+
+        // Check if a booted iOS simulator exists
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo("xcrun", "simctl list devices booted -j")
+                {
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false
+                };
+                using var proc = System.Diagnostics.Process.Start(psi)!;
+                var output = await proc.StandardOutput.ReadToEndAsync();
+                await proc.WaitForExitAsync();
+
+                using var doc = JsonDocument.Parse(output);
+                if (doc.RootElement.TryGetProperty("devices", out var devices))
+                {
+                    foreach (var runtime in devices.EnumerateObject())
+                    {
+                        foreach (var device in runtime.Value.EnumerateArray())
+                        {
+                            var state = device.TryGetProperty("state", out var s) ? s.GetString() : null;
+                            if (state == "Booted") return "ios-simulator";
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
 
         if (OperatingSystem.IsWindows()) return "windows";
         if (OperatingSystem.IsLinux()) return "linux";
@@ -2577,11 +2601,11 @@ class Program
         throw new InvalidOperationException("Cannot determine Windows app PID. Specify --pid.");
     }
 
-    private static async Task AlertDetectAsync(string? udid, int? pid, string platform, string host, int port, bool json)
+    private static async Task AlertDetectAsync(string? udid, int? pid, string host, int port, bool json)
     {
         try
         {
-            var plat = await ResolveAlertPlatformAsync(platform, host, port);
+            var plat = await ResolveAlertPlatformAsync(udid, pid, host, port);
             MauiDevFlow.Driver.AlertInfo? alert = null;
 
             if (plat == "maccatalyst")
@@ -2624,11 +2648,11 @@ class Program
         catch (Exception ex) { OutputWriter.WriteError(ex.Message, json); _errorOccurred = true; }
     }
 
-    private static async Task AlertDismissAsync(string? udid, int? pid, string platform, string host, int port, string? buttonLabel, bool json)
+    private static async Task AlertDismissAsync(string? udid, int? pid, string host, int port, string? buttonLabel, bool json)
     {
         try
         {
-            var plat = await ResolveAlertPlatformAsync(platform, host, port);
+            var plat = await ResolveAlertPlatformAsync(udid, pid, host, port);
             MauiDevFlow.Driver.AlertInfo? alert = null;
 
             if (plat == "maccatalyst")
@@ -2663,11 +2687,11 @@ class Program
         catch (Exception ex) { OutputWriter.WriteError(ex.Message, json); _errorOccurred = true; }
     }
 
-    private static async Task AlertTreeAsync(string? udid, int? pid, string platform, string host, int port, bool json)
+    private static async Task AlertTreeAsync(string? udid, int? pid, string host, int port, bool json)
     {
         try
         {
-            var plat = await ResolveAlertPlatformAsync(platform, host, port);
+            var plat = await ResolveAlertPlatformAsync(udid, pid, host, port);
             string treeResult;
 
             if (plat == "maccatalyst")

@@ -39,6 +39,7 @@
     <Compile Include="..\SampleMauiApp\NetworkTestPage.xaml.cs" Link="NetworkTestPage.xaml.cs" />
     <Compile Include="..\SampleMauiApp\TodoService.cs" Link="TodoService.cs" />
     <Compile Include="..\SampleMauiApp\TodoItem.cs" Link="TodoItem.cs" />
+    <Compile Include="..\SampleMauiApp\MultiBlazorPage.xaml.cs" Link="MultiBlazorPage.xaml.cs" />
     <Compile Include="..\SampleMauiApp\DebugFileLogger.cs" Link="DebugFileLogger.cs" />
   </ItemGroup>
 
@@ -51,6 +52,7 @@
     <MauiXaml Include="..\SampleMauiApp\DialogTestPage.xaml" Link="DialogTestPage.xaml" />
     <MauiXaml Include="..\SampleMauiApp\InteractionTestPage.xaml" Link="InteractionTestPage.xaml" />
     <MauiXaml Include="..\SampleMauiApp\ModalTestPage.xaml" Link="ModalTestPage.xaml" />
+    <MauiXaml Include="..\SampleMauiApp\MultiBlazorPage.xaml" Link="MultiBlazorPage.xaml" />
     <MauiXaml Include="..\SampleMauiApp\NetworkTestPage.xaml" Link="NetworkTestPage.xaml" />
   </ItemGroup>
 
