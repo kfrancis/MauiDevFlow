@@ -1,6 +1,7 @@
 using Microsoft.Maui.Controls;
 using MauiDevFlow.Agent.Core;
 using MauiDevFlow.Agent.Core.Profiling;
+using MauiDevFlow.Agent.Profiling;
 #if MACOS
 using AppKit;
 using Foundation;
@@ -214,7 +215,7 @@ public class PlatformAgentService : DevFlowAgentService
     protected override IProfilerCollector CreateProfilerCollector()
     {
 #if ANDROID || IOS || WINDOWS || MACCATALYST
-        return new RuntimeProfilerCollector();
+        return new RuntimeProfilerCollector(NativeFrameStatsProviderFactory.Create());
 #else
         return base.CreateProfilerCollector();
 #endif

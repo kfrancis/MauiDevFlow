@@ -14,12 +14,16 @@ public class ProfilerSample
     public double? Fps { get; set; }
     public double? FrameTimeMsP50 { get; set; }
     public double? FrameTimeMsP95 { get; set; }
+    public double? WorstFrameTimeMs { get; set; }
     public long ManagedBytes { get; set; }
     public int Gc0 { get; set; }
     public int Gc1 { get; set; }
     public int Gc2 { get; set; }
     public double? CpuPercent { get; set; }
     public int? ThreadCount { get; set; }
+    public int JankFrameCount { get; set; }
+    public int UiThreadStallCount { get; set; }
+    public string FrameSource { get; set; } = "managed.estimated";
     public string FrameQuality { get; set; } = "estimated";
 }
 
@@ -99,6 +103,9 @@ public class ProfilerCapabilities
     public bool CpuPercentSupported { get; set; }
     public bool FpsSupported { get; set; }
     public bool FrameTimingsEstimated { get; set; }
+    public bool NativeFrameTimingsSupported { get; set; }
+    public bool JankEventsSupported { get; set; }
+    public bool UiThreadStallSupported { get; set; }
     public bool ThreadCountSupported { get; set; }
 }
 

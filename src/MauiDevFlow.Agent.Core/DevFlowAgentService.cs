@@ -1767,6 +1767,9 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
             cpuPercentSupported = capabilities.CpuPercentSupported,
             fpsSupported = capabilities.FpsSupported,
             frameTimingsEstimated = capabilities.FrameTimingsEstimated,
+            nativeFrameTimingsSupported = capabilities.NativeFrameTimingsSupported,
+            jankEventsSupported = capabilities.JankEventsSupported,
+            uiThreadStallSupported = capabilities.UiThreadStallSupported,
             threadCountSupported = capabilities.ThreadCountSupported
         };
     }
@@ -1816,6 +1819,8 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
     {
         if (!IsProfilerFeatureAvailable)
             return Task.FromResult<HttpResponse>(HttpResponse.Error("Profiler is not available"));
+        if (!_profilerSessions.IsActive)
+            return Task.FromResult<HttpResponse>(HttpResponse.Error("No active profiler session"));
 
         var body = request.BodyAs<PublishProfilerMarkerRequest>();
         if (string.IsNullOrWhiteSpace(body?.Name))
@@ -1837,6 +1842,8 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
     {
         if (!IsProfilerFeatureAvailable)
             return Task.FromResult<HttpResponse>(HttpResponse.Error("Profiler is not available"));
+        if (!_profilerSessions.IsActive)
+            return Task.FromResult<HttpResponse>(HttpResponse.Error("No active profiler session"));
 
         var body = request.BodyAs<PublishProfilerSpanRequest>();
         if (string.IsNullOrWhiteSpace(body?.Name))
@@ -1948,6 +1955,7 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
             if (_profilerCollector.TryCollect(out var sample))
             {
                 _profilerSessions.AddSample(sample);
+                PublishNativeFrameSignals(sample);
                 TryPublishAutoJankSpan(sample);
             }
 
@@ -1955,18 +1963,62 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
         }
     }
 
+    private void PublishNativeFrameSignals(ProfilerSample sample)
+    {
+        if (sample.JankFrameCount <= 0 && sample.UiThreadStallCount <= 0)
+            return;
+
+        if (sample.JankFrameCount > 0)
+        {
+            Publish(new ProfilerMarker
+            {
+                TsUtc = sample.TsUtc,
+                Type = "ui.frame.jank.native",
+                Name = sample.FrameSource,
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    jankFrames = sample.JankFrameCount,
+                    frameTimeMsP95 = sample.FrameTimeMsP95,
+                    worstFrameTimeMs = sample.WorstFrameTimeMs,
+                    frameSource = sample.FrameSource,
+                    frameQuality = sample.FrameQuality
+                })
+            });
+        }
+
+        if (sample.UiThreadStallCount > 0)
+        {
+            Publish(new ProfilerMarker
+            {
+                TsUtc = sample.TsUtc,
+                Type = "ui.thread.stall.native",
+                Name = sample.FrameSource,
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    stallCount = sample.UiThreadStallCount,
+                    worstFrameTimeMs = sample.WorstFrameTimeMs,
+                    frameSource = sample.FrameSource,
+                    frameQuality = sample.FrameQuality
+                })
+            });
+        }
+    }
+
     private void TryPublishAutoJankSpan(ProfilerSample sample)
     {
         var frameMs = sample.FrameTimeMsP95;
-        if (!frameMs.HasValue || frameMs.Value < 20d)
+        var hasNativeJankSignal = sample.JankFrameCount > 0 || sample.UiThreadStallCount > 0;
+        if (!frameMs.HasValue || (frameMs.Value < 20d && !hasNativeJankSignal))
             return;
 
+        var throttleMs = sample.FrameSource.StartsWith("native.", StringComparison.OrdinalIgnoreCase) ? 100d : 250d;
         if (_lastAutoJankSpanTsUtc != DateTime.MinValue
-            && (sample.TsUtc - _lastAutoJankSpanTsUtc).TotalMilliseconds < 250)
+            && (sample.TsUtc - _lastAutoJankSpanTsUtc).TotalMilliseconds < throttleMs)
             return;
 
         _lastAutoJankSpanTsUtc = sample.TsUtc;
         var (actionName, actionElementPath, actionLagMs) = GetRecentUserAction(sample.TsUtc, TimeSpan.FromSeconds(3));
+        var isStall = sample.UiThreadStallCount > 0 || (sample.WorstFrameTimeMs ?? 0d) >= 150d;
         Publish(new ProfilerSpan
         {
             SpanId = Guid.NewGuid().ToString("N"),
@@ -1974,8 +2026,10 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
             StartTsUtc = sample.TsUtc.AddMilliseconds(-frameMs.Value),
             EndTsUtc = sample.TsUtc,
             Kind = "ui.operation",
-            Name = string.IsNullOrWhiteSpace(actionName) ? "ui.frame.jank" : "ui.action.jank",
-            Status = "ok",
+            Name = isStall
+                ? (string.IsNullOrWhiteSpace(actionName) ? "ui.thread.stall" : "ui.action.stall")
+                : (string.IsNullOrWhiteSpace(actionName) ? "ui.frame.jank" : "ui.action.jank"),
+            Status = isStall ? "error" : "ok",
             ThreadId = Environment.CurrentManagedThreadId,
             Screen = Shell.Current?.CurrentState?.Location?.ToString(),
             ElementPath = actionElementPath,
@@ -1983,7 +2037,11 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
             {
                 frameTimeMsP95 = frameMs.Value,
                 fps = sample.Fps,
+                frameSource = sample.FrameSource,
                 frameQuality = sample.FrameQuality,
+                jankFrameCount = sample.JankFrameCount,
+                uiThreadStallCount = sample.UiThreadStallCount,
+                worstFrameTimeMs = sample.WorstFrameTimeMs,
                 actionName,
                 actionLagMs
             })
@@ -1992,7 +2050,7 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
 
     private void EnsureAutoUiHooks()
     {
-        if (!IsProfilerFeatureAvailable || !_profilerSessions.IsActive || _dispatcher == null)
+        if (!IsProfilerFeatureAvailable || !_profilerSessions.IsActive || _dispatcher == null || !_options.EnableHighLevelUiHooks)
             return;
 
         var now = DateTime.UtcNow;
@@ -2086,27 +2144,28 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
 
     private void ScanElementForHooks(Element element)
     {
+        var detailedHooksEnabled = _options.EnableDetailedUiHooks;
         switch (element)
         {
-            case Button button:
+            case Button button when detailedHooksEnabled:
                 AttachButtonHook(button);
                 break;
-            case ImageButton imageButton:
+            case ImageButton imageButton when detailedHooksEnabled:
                 AttachImageButtonHook(imageButton);
                 break;
-            case Entry entry:
+            case Entry entry when detailedHooksEnabled:
                 AttachEntryHook(entry);
                 break;
-            case SearchBar searchBar:
+            case SearchBar searchBar when detailedHooksEnabled:
                 AttachSearchBarHook(searchBar);
                 break;
-            case CheckBox checkBox:
+            case CheckBox checkBox when detailedHooksEnabled:
                 AttachCheckBoxHook(checkBox);
                 break;
-            case Switch toggle:
+            case Switch toggle when detailedHooksEnabled:
                 AttachSwitchHook(toggle);
                 break;
-            case Picker picker:
+            case Picker picker when detailedHooksEnabled:
                 AttachPickerHook(picker);
                 break;
             case ScrollView scrollView:
@@ -2120,7 +2179,7 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
                 break;
         }
 
-        if (element is View view)
+        if (detailedHooksEnabled && element is View view)
         {
             foreach (var tapGesture in view.GestureRecognizers.OfType<TapGestureRecognizer>())
                 AttachTapGestureHook(tapGesture);

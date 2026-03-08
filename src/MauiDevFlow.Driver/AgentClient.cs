@@ -452,6 +452,8 @@ public class ProfilerSample
     public double? FrameTimeMsP50 { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("frameTimeMsP95")]
     public double? FrameTimeMsP95 { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("worstFrameTimeMs")]
+    public double? WorstFrameTimeMs { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("managedBytes")]
     public long ManagedBytes { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("gc0")]
@@ -464,6 +466,12 @@ public class ProfilerSample
     public double? CpuPercent { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("threadCount")]
     public int? ThreadCount { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("jankFrameCount")]
+    public int JankFrameCount { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("uiThreadStallCount")]
+    public int UiThreadStallCount { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("frameSource")]
+    public string FrameSource { get; set; } = "";
     [System.Text.Json.Serialization.JsonPropertyName("frameQuality")]
     public string FrameQuality { get; set; } = "";
 }
@@ -572,6 +580,12 @@ public class ProfilerCapabilities
     public bool FpsSupported { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("frameTimingsEstimated")]
     public bool FrameTimingsEstimated { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("nativeFrameTimingsSupported")]
+    public bool NativeFrameTimingsSupported { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("jankEventsSupported")]
+    public bool JankEventsSupported { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("uiThreadStallSupported")]
+    public bool UiThreadStallSupported { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("threadCountSupported")]
     public bool ThreadCountSupported { get; set; }
 }

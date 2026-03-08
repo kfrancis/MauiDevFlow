@@ -104,4 +104,16 @@ public class AgentOptions
     /// Uses overwrite-on-full ring buffer behavior.
     /// </summary>
     public int MaxProfilerSpans { get; set; } = 20_000;
+
+    /// <summary>
+    /// Enables high-level MAUI UI correlation hooks (navigation/page/scroll markers).
+    /// Default: true.
+    /// </summary>
+    public bool EnableHighLevelUiHooks { get; set; } = true;
+
+    /// <summary>
+    /// Enables detailed per-control MAUI hooks (button/entry/toggle/picker/tap).
+    /// Default: false to avoid broad attachment overhead.
+    /// </summary>
+    public bool EnableDetailedUiHooks { get; set; } = false;
 }

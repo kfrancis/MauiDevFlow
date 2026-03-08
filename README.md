@@ -80,9 +80,9 @@ builder.AddMauiBlazorDevFlowTools(); // Blazor Hybrid only
 #endif
 ```
 
-**Agent options:** `Port` (default 9223), `Enabled` (default true), `MaxTreeDepth` (0 = unlimited), `EnableProfiler` (default false), `ProfilerSampleIntervalMs` (default 500), `MaxProfilerSamples` (default 20000), `MaxProfilerMarkers` (default 20000), `MaxProfilerSpans` (default 20000). Port is also configurable via `.mauidevflow` or `-p:MauiDevFlowPort=XXXX`.
+**Agent options:** `Port` (default 9223), `Enabled` (default true), `MaxTreeDepth` (0 = unlimited), `EnableProfiler` (default false), `ProfilerSampleIntervalMs` (default 500), `MaxProfilerSamples` (default 20000), `MaxProfilerMarkers` (default 20000), `MaxProfilerSpans` (default 20000), `EnableHighLevelUiHooks` (default true), `EnableDetailedUiHooks` (default false). Port is also configurable via `.mauidevflow` or `-p:MauiDevFlowPort=XXXX`.
 
-With `EnableProfiler=true`, the agent also auto-instruments common MAUI UI interactions (button/image button clicks, tap gestures, picker/list selection, entry completion, search submit, page appearing/disappearing), Shell navigation milestones (`navigation.start`, `navigation.shell.completed`, `navigation.to-page-appearing`, `navigation.to-first-layout`), first layout spans (`ui.page.first-layout`, `ui.render.first-layout`), and scroll batches (`ui.scroll.batch`) so profiler output reflects real runtime UI behavior, not only DevFlow API actions.
+With `EnableProfiler=true`, the agent uses native frame pipelines where available (Android Choreographer, Apple CADisplayLink) to emit higher-confidence frame/jank/stall signals (`frameSource`, `jankFrameCount`, `uiThreadStallCount`). High-level UI milestones (navigation/page/scroll) are enabled by default; per-control hooks are optional via `EnableDetailedUiHooks=true` when deep interaction traces are needed.
 
 **Blazor options:** `Enabled` (default true), `EnableWebViewInspection` (default true), `EnableLogging` (default true in DEBUG). CDP commands are routed through the agent port — no separate Blazor port needed.
 

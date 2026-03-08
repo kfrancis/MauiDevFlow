@@ -6,23 +6,41 @@ namespace MauiDevFlow.Agent.Core.Profiling;
 public class RuntimeProfilerCollector : IProfilerCollector
 {
     private readonly Process _process = Process.GetCurrentProcess();
-    private readonly ProfilerCapabilities _capabilities = new()
-    {
-        Platform = GetPlatformName(),
-        ManagedMemorySupported = true,
-        GcSupported = true,
-        CpuPercentSupported = true,
-        FpsSupported = true,
-        FrameTimingsEstimated = true,
-        ThreadCountSupported = true
-    };
+    private readonly INativeFrameStatsProvider? _nativeFrameStatsProvider;
+    private readonly ProfilerCapabilities _capabilities;
 
     private bool _running;
     private DateTime _lastSampleTimestampUtc;
     private TimeSpan _lastCpuTime;
     private int _sampleIntervalMs = 500;
     private double _estimatedFrameTimeMs = 1000d / 60d;
-    private string _frameQuality = "estimated.default-60hz";
+    private string _estimatedFrameQuality = "estimated.default-60hz";
+
+    public RuntimeProfilerCollector(INativeFrameStatsProvider? nativeFrameStatsProvider = null)
+    {
+        _nativeFrameStatsProvider = nativeFrameStatsProvider;
+        _capabilities = new ProfilerCapabilities
+        {
+            Platform = GetPlatformName(),
+            ManagedMemorySupported = true,
+            GcSupported = true,
+            CpuPercentSupported = true,
+            ThreadCountSupported = true,
+            FpsSupported = true,
+            FrameTimingsEstimated = true,
+            NativeFrameTimingsSupported = false,
+            JankEventsSupported = false,
+            UiThreadStallSupported = false
+        };
+
+        if (_nativeFrameStatsProvider?.IsSupported == true)
+        {
+            _capabilities.NativeFrameTimingsSupported = true;
+            _capabilities.JankEventsSupported = true;
+            _capabilities.UiThreadStallSupported = true;
+            _capabilities.FrameTimingsEstimated = false;
+        }
+    }
 
     public void Start(int intervalMs)
     {
@@ -31,7 +49,16 @@ public class RuntimeProfilerCollector : IProfilerCollector
 
         _sampleIntervalMs = intervalMs;
         _lastSampleTimestampUtc = DateTime.UtcNow;
-        (_estimatedFrameTimeMs, _frameQuality) = ResolveFrameEstimate();
+        if (_nativeFrameStatsProvider?.IsSupported == true)
+        {
+            // Native providers own frame timing. Keep a safe fallback estimate in case native collection is disabled later.
+            _estimatedFrameTimeMs = 1000d / 60d;
+            _estimatedFrameQuality = "estimated.default-60hz";
+        }
+        else
+        {
+            (_estimatedFrameTimeMs, _estimatedFrameQuality) = ResolveFrameEstimate();
+        }
 
         try
         {
@@ -62,12 +89,29 @@ public class RuntimeProfilerCollector : IProfilerCollector
             }
         }
 
+        if (_nativeFrameStatsProvider?.IsSupported == true)
+        {
+            try
+            {
+                _nativeFrameStatsProvider.Start();
+            }
+            catch (Exception ex) when (IsNativeProviderAccessException(ex))
+            {
+                TryStopNativeProviderAfterStartupFailure();
+                _capabilities.NativeFrameTimingsSupported = false;
+                _capabilities.JankEventsSupported = false;
+                _capabilities.UiThreadStallSupported = false;
+                _capabilities.FrameTimingsEstimated = true;
+            }
+        }
+
         _running = true;
     }
 
     public void Stop()
     {
         _running = false;
+        _nativeFrameStatsProvider?.Stop();
     }
 
     public bool TryCollect(out ProfilerSample sample)
@@ -78,33 +122,61 @@ public class RuntimeProfilerCollector : IProfilerCollector
 
         var now = DateTime.UtcNow;
         var elapsedMs = Math.Max(1d, (now - _lastSampleTimestampUtc).TotalMilliseconds);
-        var effectiveElapsedMs = Math.Max(_sampleIntervalMs, elapsedMs);
-        var lagRatio = effectiveElapsedMs / _sampleIntervalMs;
-        var estimatedFrameTimeMs = _estimatedFrameTimeMs * lagRatio;
-        var estimatedFps = estimatedFrameTimeMs > 0 ? 1000d / estimatedFrameTimeMs : (double?)null;
         var cpuPercent = TryReadCpuPercent(elapsedMs);
         var threadCount = TryReadThreadCount();
 
-        sample = new ProfilerSample
-        {
-            TsUtc = now,
-            Fps = estimatedFps,
-            FrameTimeMsP50 = estimatedFrameTimeMs,
-            FrameTimeMsP95 = estimatedFrameTimeMs,
-            FrameQuality = $"{_frameQuality}.sampling-lag",
-            ManagedBytes = GC.GetTotalMemory(false),
-            Gc0 = GC.CollectionCount(0),
-            Gc1 = GC.CollectionCount(1),
-            Gc2 = GC.CollectionCount(2),
-            CpuPercent = cpuPercent,
-            ThreadCount = threadCount
-        };
+        sample = BuildFrameSample(now);
+        sample.ManagedBytes = GC.GetTotalMemory(false);
+        sample.Gc0 = GC.CollectionCount(0);
+        sample.Gc1 = GC.CollectionCount(1);
+        sample.Gc2 = GC.CollectionCount(2);
+        sample.CpuPercent = cpuPercent;
+        sample.ThreadCount = threadCount;
 
         _lastSampleTimestampUtc = now;
         return true;
     }
 
     public ProfilerCapabilities GetCapabilities() => _capabilities;
+
+    private ProfilerSample BuildFrameSample(DateTime now)
+    {
+        if (_nativeFrameStatsProvider?.IsSupported == true
+            && _nativeFrameStatsProvider.TryCollect(out var nativeSnapshot))
+        {
+            return new ProfilerSample
+            {
+                TsUtc = now,
+                Fps = nativeSnapshot.Fps,
+                FrameTimeMsP50 = nativeSnapshot.FrameTimeMsP50,
+                FrameTimeMsP95 = nativeSnapshot.FrameTimeMsP95,
+                WorstFrameTimeMs = nativeSnapshot.WorstFrameTimeMs,
+                JankFrameCount = nativeSnapshot.JankFrameCount,
+                UiThreadStallCount = nativeSnapshot.UiThreadStallCount,
+                FrameSource = nativeSnapshot.Source,
+                FrameQuality = "native.exact"
+            };
+        }
+
+        var elapsedMs = Math.Max(1d, (now - _lastSampleTimestampUtc).TotalMilliseconds);
+        var effectiveElapsedMs = Math.Max(_sampleIntervalMs, elapsedMs);
+        var lagRatio = effectiveElapsedMs / _sampleIntervalMs;
+        var estimatedFrameTimeMs = _estimatedFrameTimeMs * lagRatio;
+        var estimatedFps = estimatedFrameTimeMs > 0 ? 1000d / estimatedFrameTimeMs : (double?)null;
+
+        return new ProfilerSample
+        {
+            TsUtc = now,
+            Fps = estimatedFps,
+            FrameTimeMsP50 = estimatedFrameTimeMs,
+            FrameTimeMsP95 = estimatedFrameTimeMs,
+            WorstFrameTimeMs = estimatedFrameTimeMs,
+            JankFrameCount = estimatedFrameTimeMs >= 24d ? 1 : 0,
+            UiThreadStallCount = estimatedFrameTimeMs >= 150d ? 1 : 0,
+            FrameSource = "managed.estimated",
+            FrameQuality = $"{_estimatedFrameQuality}.sampling-lag"
+        };
+    }
 
     private double? TryReadCpuPercent(double elapsedMs)
     {
@@ -175,13 +247,40 @@ public class RuntimeProfilerCollector : IProfilerCollector
 
             return refreshRate;
         }
-        catch (Exception ex) when (
-            ex is InvalidOperationException
-            || ex is NotSupportedException
-            || ex is PlatformNotSupportedException)
+        catch (Exception ex) when (IsDisplayInfoAccessException(ex))
         {
             return null;
         }
+    }
+
+    private static bool IsDisplayInfoAccessException(Exception ex)
+    {
+        return ex is InvalidOperationException
+            || ex is NotSupportedException
+            || ex is PlatformNotSupportedException
+            || ex.GetType().Name.Equals("UIKitThreadAccessException", StringComparison.Ordinal);
+    }
+
+    private void TryStopNativeProviderAfterStartupFailure()
+    {
+        if (_nativeFrameStatsProvider is null)
+            return;
+
+        try
+        {
+            _nativeFrameStatsProvider.Stop();
+        }
+        catch (Exception ex) when (IsNativeProviderAccessException(ex))
+        {
+        }
+    }
+
+    private static bool IsNativeProviderAccessException(Exception ex)
+    {
+        return ex is InvalidOperationException
+            || ex is NotSupportedException
+            || ex is PlatformNotSupportedException
+            || ex is ObjectDisposedException;
     }
 
     private static string GetPlatformName()

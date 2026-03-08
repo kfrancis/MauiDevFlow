@@ -24,12 +24,16 @@ public class ProfilerCoreTests
                     Fps = 59.9,
                     FrameTimeMsP50 = 16.67,
                     FrameTimeMsP95 = 22.4,
+                    WorstFrameTimeMs = 31.2,
                     ManagedBytes = 123_456,
                     Gc0 = 10,
                     Gc1 = 4,
                     Gc2 = 1,
                     CpuPercent = 33.2,
                     ThreadCount = 14,
+                    JankFrameCount = 2,
+                    UiThreadStallCount = 1,
+                    FrameSource = "native.android.choreographer",
                     FrameQuality = "estimated"
                 }
             },
@@ -70,6 +74,8 @@ public class ProfilerCoreTests
         Assert.Equal("navigation.start", parsed.Markers[0].Type);
         Assert.Equal(4, parsed.SpanCursor);
         Assert.Equal(123_456, parsed.Samples[0].ManagedBytes);
+        Assert.Equal("native.android.choreographer", parsed.Samples[0].FrameSource);
+        Assert.Equal(2, parsed.Samples[0].JankFrameCount);
     }
 
     [Fact]
@@ -160,9 +166,71 @@ public class ProfilerCoreTests
         Assert.True(second);
         Assert.True(sample1.ManagedBytes >= 0);
         Assert.True(sample1.Gc0 >= 0);
+        Assert.StartsWith("managed.", sample1.FrameSource);
         Assert.StartsWith("estimated", sample1.FrameQuality);
         Assert.True(sample1.Fps >= 30);
         Assert.True(sample1.FrameTimeMsP95 <= 33.5);
         Assert.True(sample2.TsUtc > sample1.TsUtc);
+    }
+
+    [Fact]
+    public void ProfilerSessionStore_IsActiveReflectsLifecycle()
+    {
+        var store = new ProfilerSessionStore(10, 10, 10);
+        Assert.False(store.IsActive);
+
+        store.Start(250);
+        Assert.True(store.IsActive);
+
+        store.Stop();
+        Assert.False(store.IsActive);
+    }
+
+    [Fact]
+    public void RuntimeProfilerCollector_WhenNativeProviderStartFails_CleansUpAndFallsBackToEstimated()
+    {
+        var provider = new ThrowingNativeProvider();
+        var collector = new RuntimeProfilerCollector(provider);
+
+        collector.Start(100);
+        Thread.Sleep(120);
+        var collected = collector.TryCollect(out var sample);
+        var capabilities = collector.GetCapabilities();
+        collector.Stop();
+
+        Assert.Equal(1, provider.StartCalls);
+        Assert.True(provider.StopCalls >= 1);
+        Assert.True(collected);
+        Assert.StartsWith("managed.", sample.FrameSource);
+        Assert.True(capabilities.FrameTimingsEstimated);
+        Assert.False(capabilities.NativeFrameTimingsSupported);
+        Assert.False(capabilities.JankEventsSupported);
+        Assert.False(capabilities.UiThreadStallSupported);
+    }
+
+    private sealed class ThrowingNativeProvider : INativeFrameStatsProvider
+    {
+        public bool IsSupported => true;
+        public string Source => "native.test";
+        public int StartCalls { get; private set; }
+        public int StopCalls { get; private set; }
+
+        public void Start()
+        {
+            StartCalls++;
+            throw new InvalidOperationException("start failed");
+        }
+
+        public void Stop() => StopCalls++;
+
+        public bool TryCollect(out NativeFrameStatsSnapshot snapshot)
+        {
+            snapshot = new NativeFrameStatsSnapshot();
+            return false;
+        }
+
+        public void Dispose()
+        {
+        }
     }
 }

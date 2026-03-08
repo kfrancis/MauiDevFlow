@@ -18,7 +18,16 @@ public class ProfilerSessionStore
         _spans = new ProfilerRingBuffer<ProfilerSpan>(maxSpans);
     }
 
-    public bool IsActive => _session?.IsActive == true;
+    public bool IsActive
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _session?.IsActive == true;
+            }
+        }
+    }
 
     public ProfilerSessionInfo? CurrentSession
     {
@@ -117,56 +126,57 @@ public class ProfilerSessionStore
 
     public List<ProfilerHotspot> GetHotspots(int limit, int minDurationMs, string? kind = null)
     {
+        List<ProfilerSpan> spans;
         lock (_gate)
         {
-            var spans = _spans.ReadAfter(0, _spans.Capacity, out _);
-            if (spans.Count == 0)
-                return new List<ProfilerHotspot>();
-
-            var filtered = spans
-                .Where(span => span.DurationMs >= minDurationMs)
-                .Where(span => string.IsNullOrWhiteSpace(kind) || span.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase));
-
-            var hotspots = filtered
-                .GroupBy(span => new
-                {
-                    span.Kind,
-                    span.Name,
-                    Screen = string.IsNullOrWhiteSpace(span.Screen) ? null : span.Screen
-                })
-                .Select(group =>
-                {
-                    var durations = group
-                        .Select(span => span.DurationMs)
-                        .OrderBy(value => value)
-                        .ToArray();
-
-                    var p95Index = durations.Length == 0
-                        ? 0
-                        : (int)Math.Ceiling(durations.Length * 0.95) - 1;
-                    p95Index = Math.Clamp(p95Index, 0, Math.Max(0, durations.Length - 1));
-                    var count = durations.Length;
-
-                    return new ProfilerHotspot
-                    {
-                        Kind = group.Key.Kind,
-                        Name = group.Key.Name,
-                        Screen = group.Key.Screen,
-                        Count = count,
-                        ErrorCount = group.Count(span => !span.Status.Equals("ok", StringComparison.OrdinalIgnoreCase)),
-                        AvgDurationMs = count == 0 ? 0 : durations.Average(),
-                        P95DurationMs = count == 0 ? 0 : durations[p95Index],
-                        MaxDurationMs = count == 0 ? 0 : durations[^1]
-                    };
-                })
-                .OrderByDescending(h => h.P95DurationMs)
-                .ThenByDescending(h => h.MaxDurationMs)
-                .ThenByDescending(h => h.Count)
-                .Take(Math.Max(1, limit))
-                .ToList();
-
-            return hotspots;
+            spans = _spans.ReadAfter(0, _spans.Capacity, out _);
         }
+
+        if (spans.Count == 0)
+            return new List<ProfilerHotspot>();
+
+        var filtered = spans
+            .Where(span => span.DurationMs >= minDurationMs)
+            .Where(span => string.IsNullOrWhiteSpace(kind) || span.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase));
+
+        var hotspots = filtered
+            .GroupBy(span => new
+            {
+                span.Kind,
+                span.Name,
+                Screen = string.IsNullOrWhiteSpace(span.Screen) ? null : span.Screen
+            })
+            .Select(group =>
+            {
+                var durations = group
+                    .Select(span => span.DurationMs)
+                    .OrderBy(value => value)
+                    .ToArray();
+
+                var count = durations.Length;
+                var p95Index = count <= 1
+                    ? 0
+                    : Math.Min((int)Math.Ceiling(count * 0.95), count - 1);
+
+                return new ProfilerHotspot
+                {
+                    Kind = group.Key.Kind,
+                    Name = group.Key.Name,
+                    Screen = group.Key.Screen,
+                    Count = count,
+                    ErrorCount = group.Count(span => !span.Status.Equals("ok", StringComparison.OrdinalIgnoreCase)),
+                    AvgDurationMs = count == 0 ? 0 : durations.Average(),
+                    P95DurationMs = count == 0 ? 0 : durations[p95Index],
+                    MaxDurationMs = count == 0 ? 0 : durations[^1]
+                };
+            })
+            .OrderByDescending(h => h.P95DurationMs)
+            .ThenByDescending(h => h.MaxDurationMs)
+            .ThenByDescending(h => h.Count)
+            .Take(Math.Max(1, limit))
+            .ToList();
+
+        return hotspots;
     }
 
     public ProfilerBatch GetBatch(long sampleCursor, long markerCursor, int limit, long spanCursor = 0)

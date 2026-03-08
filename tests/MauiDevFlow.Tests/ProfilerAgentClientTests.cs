@@ -51,12 +51,16 @@ public class ProfilerAgentClientTests
                           "fps": 60.0,
                           "frameTimeMsP50": 16.6,
                           "frameTimeMsP95": 20.1,
+                          "worstFrameTimeMs": 48.2,
                           "managedBytes": 2048,
                           "gc0": 1,
                           "gc1": 0,
                           "gc2": 0,
                           "cpuPercent": 12.5,
                           "threadCount": 8,
+                          "jankFrameCount": 3,
+                          "uiThreadStallCount": 1,
+                          "frameSource": "native.android.choreographer",
                           "frameQuality": "estimated"
                         }
                       ],
@@ -122,6 +126,8 @@ public class ProfilerAgentClientTests
         Assert.Single(batch.Samples);
         Assert.Single(batch.Markers);
         Assert.Single(batch.Spans);
+        Assert.Equal("native.android.choreographer", batch.Samples[0].FrameSource);
+        Assert.Equal(3, batch.Samples[0].JankFrameCount);
         Assert.Equal(1, batch.SampleCursor);
         Assert.Equal(1, batch.MarkerCursor);
         Assert.Equal(1, batch.SpanCursor);
