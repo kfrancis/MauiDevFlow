@@ -117,6 +117,7 @@ internal sealed class AndroidFrameMetricsStatsProvider : Java.Lang.Object, INati
 {
     private readonly FrameStatsAccumulator _accumulator;
     private WeakReference<Android.Views.Window>? _windowRef;
+    private Handler? _frameMetricsHandler;
     private bool _running;
 
     public AndroidFrameMetricsStatsProvider()
@@ -145,8 +146,13 @@ internal sealed class AndroidFrameMetricsStatsProvider : Java.Lang.Object, INati
             if (window == null)
                 throw new InvalidOperationException("Unable to access current Android window for frame metrics.");
 
+            var looper = Looper.MyLooper() ?? Looper.MainLooper;
+            if (looper == null)
+                throw new InvalidOperationException("Unable to obtain Android looper for frame metrics listener.");
+
+            _frameMetricsHandler ??= new Handler(looper);
             _windowRef = new WeakReference<Android.Views.Window>(window);
-            window.AddOnFrameMetricsAvailableListener(this, null);
+            window.AddOnFrameMetricsAvailableListener(this, _frameMetricsHandler);
         });
     }
 
@@ -158,6 +164,7 @@ internal sealed class AndroidFrameMetricsStatsProvider : Java.Lang.Object, INati
             if (_windowRef?.TryGetTarget(out var window) == true)
                 window.RemoveOnFrameMetricsAvailableListener(this);
             _windowRef = null;
+            _frameMetricsHandler = null;
         });
     }
 
