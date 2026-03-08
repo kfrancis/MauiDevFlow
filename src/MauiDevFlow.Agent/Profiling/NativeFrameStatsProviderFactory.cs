@@ -14,6 +14,7 @@ using Foundation;
 using Microsoft.Maui.Devices;
 #endif
 #if WINDOWS
+using Microsoft.Maui.Devices;
 using Microsoft.UI.Xaml.Media;
 #endif
 
@@ -418,9 +419,15 @@ internal sealed class AppleDisplayLinkFrameStatsProvider : INativeFrameStatsProv
 #if WINDOWS
 internal sealed class WindowsCompositionFrameStatsProvider : INativeFrameStatsProvider
 {
-    private readonly FrameStatsAccumulator _accumulator = new(1000d / 60d);
+    private readonly FrameStatsAccumulator _accumulator;
     private bool _running;
     private TimeSpan? _lastRenderingTime;
+
+    public WindowsCompositionFrameStatsProvider()
+    {
+        var frameBudgetMs = ResolveFrameBudgetMs();
+        _accumulator = new FrameStatsAccumulator(frameBudgetMs);
+    }
 
     public bool IsSupported => true;
     public bool ProvidesExactFrameTimings => false;
@@ -477,6 +484,24 @@ internal sealed class WindowsCompositionFrameStatsProvider : INativeFrameStatsPr
         {
             return null;
         }
+    }
+
+    private static double ResolveFrameBudgetMs()
+    {
+        try
+        {
+            var refreshRate = DeviceDisplay.Current.MainDisplayInfo.RefreshRate;
+            if (refreshRate > 1d && !double.IsInfinity(refreshRate) && !double.IsNaN(refreshRate))
+                return 1000d / refreshRate;
+        }
+        catch (Exception ex) when (
+            ex is InvalidOperationException
+            || ex is NotSupportedException
+            || ex is PlatformNotSupportedException)
+        {
+        }
+
+        return 1000d / 60d;
     }
 }
 #endif
