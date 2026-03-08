@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Runtime.InteropServices;
 using MauiDevFlow.Agent.Core.Profiling;
 using System.Reflection;
 using System.Linq;
@@ -222,6 +223,83 @@ public class ProfilerCoreTests
         AssertCorePropertiesExistInDriver<ProfilerBatch, MauiDevFlow.Driver.ProfilerBatch>();
         AssertCorePropertiesExistInDriver<ProfilerHotspot, MauiDevFlow.Driver.ProfilerHotspot>();
         AssertCorePropertiesExistInDriver<ProfilerCapabilities, MauiDevFlow.Driver.ProfilerCapabilities>("Available");
+    }
+
+    [Fact]
+    public void AppleTaskInfo_PhysFootprint_StructLayoutIsCorrect()
+    {
+        // This test validates that the P/Invoke struct layout for mach task_info
+        // is correct on the current platform. It runs on macOS (same Mach kernel as iOS).
+        if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst() && !OperatingSystem.IsIOS())
+        {
+            // Skip on non-Apple platforms — the P/Invoke is Apple-only.
+            return;
+        }
+
+        var info = new MachTaskVmInfoRev1();
+        int count = Marshal.SizeOf<MachTaskVmInfoRev1>() / sizeof(int);
+        int result = mach_task_info(mach_task_self(), 22, ref info, ref count);
+
+        // Verify the syscall succeeded (KERN_SUCCESS = 0)
+        Assert.Equal(0, result);
+
+        // PhysFootprint must be > 0 for any running process
+        Assert.True(info.PhysFootprint > 0, $"PhysFootprint was {info.PhysFootprint}, expected > 0");
+
+        // Allocate 20MB of native memory and touch it to ensure it's paged in
+        var allocSize = 20 * 1024 * 1024;
+        IntPtr nativeAlloc = Marshal.AllocHGlobal(allocSize);
+        try
+        {
+            for (int i = 0; i < allocSize; i += 4096)
+                Marshal.WriteByte(nativeAlloc + i, 1);
+
+            var info2 = new MachTaskVmInfoRev1();
+            int count2 = Marshal.SizeOf<MachTaskVmInfoRev1>() / sizeof(int);
+            int result2 = mach_task_info(mach_task_self(), 22, ref info2, ref count2);
+
+            Assert.Equal(0, result2);
+
+            // PhysFootprint should have grown by at least ~15MB (some overhead variance)
+            var deltaBytes = (long)info2.PhysFootprint - (long)info.PhysFootprint;
+            Assert.True(deltaBytes >= 15 * 1024 * 1024,
+                $"PhysFootprint delta was {deltaBytes / 1024.0 / 1024.0:F1} MB after 20MB allocation, expected >= 15MB");
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(nativeAlloc);
+        }
+    }
+
+    [DllImport("/usr/lib/libSystem.dylib", EntryPoint = "mach_task_self")]
+    static extern IntPtr mach_task_self();
+
+    [DllImport("/usr/lib/libSystem.dylib", EntryPoint = "task_info")]
+    static extern int mach_task_info(IntPtr targetTask, uint flavor, ref MachTaskVmInfoRev1 info, ref int count);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct MachTaskVmInfoRev1
+    {
+        public ulong VirtualSize;
+        public int RegionCount;
+        public int PageSize;
+        public ulong ResidentSize;
+        public ulong ResidentSizePeak;
+        public ulong Device;
+        public ulong DevicePeak;
+        public ulong Internal;
+        public ulong InternalPeak;
+        public ulong External;
+        public ulong ExternalPeak;
+        public ulong Reusable;
+        public ulong ReusablePeak;
+        public ulong PurgeableVolatilePmap;
+        public ulong PurgeableVolatileResident;
+        public ulong PurgeableVolatileVirtual;
+        public ulong Compressed;
+        public ulong CompressedPeak;
+        public ulong CompressedLifetime;
+        public ulong PhysFootprint;
     }
 
     private static void AssertCorePropertiesExistInDriver<TCore, TDriver>(params string[] extraDriverProperties)

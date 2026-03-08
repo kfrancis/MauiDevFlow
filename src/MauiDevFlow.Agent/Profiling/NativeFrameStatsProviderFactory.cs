@@ -12,6 +12,7 @@ using Microsoft.Maui.Devices;
 using CoreAnimation;
 using Foundation;
 using Microsoft.Maui.Devices;
+using System.Runtime.InteropServices;
 #endif
 #if WINDOWS
 using Microsoft.Maui.Devices;
@@ -363,7 +364,7 @@ internal sealed class AppleDisplayLinkFrameStatsProvider : INativeFrameStatsProv
         if (!_accumulator.TryCreateSnapshot(Source, out snapshot))
             return false;
 
-        snapshot.NativeMemoryBytes = TryReadResidentMemoryBytes();
+        snapshot.NativeMemoryBytes = TryReadPhysFootprint();
         return true;
     }
 
@@ -402,16 +403,57 @@ internal sealed class AppleDisplayLinkFrameStatsProvider : INativeFrameStatsProv
         return 1000d / 60d;
     }
 
-    private static long? TryReadResidentMemoryBytes()
+    private static long? TryReadPhysFootprint()
     {
         try
         {
-            return Process.GetCurrentProcess().WorkingSet64;
+            var info = new MachTaskVmInfoRev1();
+            int count = Marshal.SizeOf<MachTaskVmInfoRev1>() / sizeof(int);
+            int result = mach_task_info(mach_task_self(), TASK_VM_INFO, ref info, ref count);
+            if (result != 0 || info.PhysFootprint <= 0)
+                return null;
+
+            return (long)info.PhysFootprint;
         }
         catch
         {
             return null;
         }
+    }
+
+    const uint TASK_VM_INFO = 22;
+
+    [DllImport("/usr/lib/libSystem.dylib", EntryPoint = "mach_task_self")]
+    static extern IntPtr mach_task_self();
+
+    [DllImport("/usr/lib/libSystem.dylib", EntryPoint = "task_info")]
+    static extern int mach_task_info(IntPtr targetTask, uint flavor, ref MachTaskVmInfoRev1 info, ref int count);
+
+    // Only fields up through phys_footprint (rev1). The kernel fills only what fits based on count,
+    // so we don't need the full rev7 struct. This layout has been stable since iOS 7 / OS X 10.9.
+    [StructLayout(LayoutKind.Sequential)]
+    struct MachTaskVmInfoRev1
+    {
+        public ulong VirtualSize;
+        public int RegionCount;
+        public int PageSize;
+        public ulong ResidentSize;
+        public ulong ResidentSizePeak;
+        public ulong Device;
+        public ulong DevicePeak;
+        public ulong Internal;
+        public ulong InternalPeak;
+        public ulong External;
+        public ulong ExternalPeak;
+        public ulong Reusable;
+        public ulong ReusablePeak;
+        public ulong PurgeableVolatilePmap;
+        public ulong PurgeableVolatileResident;
+        public ulong PurgeableVolatileVirtual;
+        public ulong Compressed;
+        public ulong CompressedPeak;
+        public ulong CompressedLifetime;
+        public ulong PhysFootprint;
     }
 }
 #endif
