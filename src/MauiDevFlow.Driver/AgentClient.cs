@@ -462,6 +462,8 @@ public class ProfilerSample
     public int Gc1 { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("gc2")]
     public int Gc2 { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("nativeMemoryBytes")]
+    public long? NativeMemoryBytes { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("cpuPercent")]
     public double? CpuPercent { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("threadCount")]
@@ -572,6 +574,8 @@ public class ProfilerCapabilities
     public string Platform { get; set; } = "";
     [System.Text.Json.Serialization.JsonPropertyName("managedMemorySupported")]
     public bool ManagedMemorySupported { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("nativeMemorySupported")]
+    public bool NativeMemorySupported { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("gcSupported")]
     public bool GcSupported { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("cpuPercentSupported")]

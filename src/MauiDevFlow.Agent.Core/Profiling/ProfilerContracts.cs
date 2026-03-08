@@ -19,6 +19,7 @@ public class ProfilerSample
     public int Gc0 { get; set; }
     public int Gc1 { get; set; }
     public int Gc2 { get; set; }
+    public long? NativeMemoryBytes { get; set; }
     public double? CpuPercent { get; set; }
     public int? ThreadCount { get; set; }
     public int JankFrameCount { get; set; }
@@ -99,6 +100,7 @@ public class ProfilerCapabilities
     public bool FeatureEnabled { get; set; }
     public string Platform { get; set; } = "unknown";
     public bool ManagedMemorySupported { get; set; }
+    public bool NativeMemorySupported { get; set; }
     public bool GcSupported { get; set; }
     public bool CpuPercentSupported { get; set; }
     public bool FpsSupported { get; set; }

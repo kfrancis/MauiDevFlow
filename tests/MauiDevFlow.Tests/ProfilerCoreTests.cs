@@ -1,5 +1,7 @@
 using System.Text.Json;
 using MauiDevFlow.Agent.Core.Profiling;
+using System.Reflection;
+using System.Linq;
 
 namespace MauiDevFlow.Tests;
 
@@ -26,6 +28,7 @@ public class ProfilerCoreTests
                     FrameTimeMsP95 = 22.4,
                     WorstFrameTimeMs = 31.2,
                     ManagedBytes = 123_456,
+                    NativeMemoryBytes = 654_321,
                     Gc0 = 10,
                     Gc1 = 4,
                     Gc2 = 1,
@@ -74,6 +77,7 @@ public class ProfilerCoreTests
         Assert.Equal("navigation.start", parsed.Markers[0].Type);
         Assert.Equal(4, parsed.SpanCursor);
         Assert.Equal(123_456, parsed.Samples[0].ManagedBytes);
+        Assert.Equal(654_321, parsed.Samples[0].NativeMemoryBytes);
         Assert.Equal("native.android.choreographer", parsed.Samples[0].FrameSource);
         Assert.Equal(2, parsed.Samples[0].JankFrameCount);
     }
@@ -208,9 +212,45 @@ public class ProfilerCoreTests
         Assert.False(capabilities.UiThreadStallSupported);
     }
 
+    [Fact]
+    public void ProfilerContractModels_StayAlignedWithDriverModels()
+    {
+        AssertCorePropertiesExistInDriver<ProfilerSessionInfo, MauiDevFlow.Driver.ProfilerSessionInfo>();
+        AssertCorePropertiesExistInDriver<ProfilerSample, MauiDevFlow.Driver.ProfilerSample>();
+        AssertCorePropertiesExistInDriver<ProfilerMarker, MauiDevFlow.Driver.ProfilerMarker>();
+        AssertCorePropertiesExistInDriver<ProfilerSpan, MauiDevFlow.Driver.ProfilerSpan>();
+        AssertCorePropertiesExistInDriver<ProfilerBatch, MauiDevFlow.Driver.ProfilerBatch>();
+        AssertCorePropertiesExistInDriver<ProfilerHotspot, MauiDevFlow.Driver.ProfilerHotspot>();
+        AssertCorePropertiesExistInDriver<ProfilerCapabilities, MauiDevFlow.Driver.ProfilerCapabilities>("Available");
+    }
+
+    private static void AssertCorePropertiesExistInDriver<TCore, TDriver>(params string[] extraDriverProperties)
+    {
+        var coreProperties = typeof(TCore)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var driverProperties = typeof(TDriver)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.Name)
+            .Concat(extraDriverProperties)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var missingInDriver = coreProperties
+            .Where(coreProperty => !driverProperties.Contains(coreProperty))
+            .OrderBy(name => name)
+            .ToArray();
+
+        Assert.True(
+            missingInDriver.Length == 0,
+            $"Driver contract {typeof(TDriver).Name} is missing properties: {string.Join(", ", missingInDriver)}");
+    }
+
     private sealed class ThrowingNativeProvider : INativeFrameStatsProvider
     {
         public bool IsSupported => true;
+        public bool ProvidesExactFrameTimings => true;
         public string Source => "native.test";
         public int StartCalls { get; private set; }
         public int StopCalls { get; private set; }

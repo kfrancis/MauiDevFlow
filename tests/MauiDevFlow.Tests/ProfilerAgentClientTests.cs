@@ -53,6 +53,7 @@ public class ProfilerAgentClientTests
                           "frameTimeMsP95": 20.1,
                           "worstFrameTimeMs": 48.2,
                           "managedBytes": 2048,
+                          "nativeMemoryBytes": 8192,
                           "gc0": 1,
                           "gc1": 0,
                           "gc2": 0,
@@ -128,6 +129,7 @@ public class ProfilerAgentClientTests
         Assert.Single(batch.Spans);
         Assert.Equal("native.android.choreographer", batch.Samples[0].FrameSource);
         Assert.Equal(3, batch.Samples[0].JankFrameCount);
+        Assert.Equal(8192, batch.Samples[0].NativeMemoryBytes);
         Assert.Equal(1, batch.SampleCursor);
         Assert.Equal(1, batch.MarkerCursor);
         Assert.Equal(1, batch.SpanCursor);

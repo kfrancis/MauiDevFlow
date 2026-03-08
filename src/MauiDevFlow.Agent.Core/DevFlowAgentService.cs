@@ -37,8 +37,11 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
     private CancellationTokenSource? _profilerLoopCts;
     private Task? _profilerLoopTask;
     private DateTime _lastAutoJankSpanTsUtc = DateTime.MinValue;
+    private const int UiHookScanIntervalMs = 3000;
     private readonly ConditionalWeakTable<BindableObject, UiHookState> _uiHookStates = new();
+    private readonly List<Action> _uiHookUnsubscribers = new();
     private readonly object _uiHookGate = new();
+    private int _uiHookGeneration = 1;
     private int _uiHookScanInFlight;
     private DateTime _lastUiHookScanTsUtc = DateTime.MinValue;
     private Shell? _hookedShell;
@@ -53,6 +56,7 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
 
     private sealed class UiHookState
     {
+        public int Generation { get; set; }
         public HashSet<string> HookKeys { get; } = new(StringComparer.Ordinal);
     }
 
@@ -1751,6 +1755,7 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
             featureEnabled = _options.EnableProfiler,
             platform = capabilities.Platform,
             managedMemorySupported = capabilities.ManagedMemorySupported,
+            nativeMemorySupported = capabilities.NativeMemorySupported,
             gcSupported = capabilities.GcSupported,
             cpuPercentSupported = capabilities.CpuPercentSupported,
             fpsSupported = capabilities.FpsSupported,
@@ -2040,7 +2045,7 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
             return;
 
         var now = DateTime.UtcNow;
-        if ((now - _lastUiHookScanTsUtc).TotalMilliseconds < 1000)
+        if ((now - _lastUiHookScanTsUtc).TotalMilliseconds < UiHookScanIntervalMs)
             return;
         if (Interlocked.CompareExchange(ref _uiHookScanInFlight, 1, 0) != 0)
             return;
@@ -2091,6 +2096,10 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
 
         lock (_uiHookGate)
         {
+            foreach (var unsubscribe in _uiHookUnsubscribers)
+                unsubscribe();
+            _uiHookUnsubscribers.Clear();
+            _uiHookGeneration = _uiHookGeneration == int.MaxValue ? 1 : _uiHookGeneration + 1;
             _navigationStartedAtUtc = null;
             _navigationTargetRoute = null;
             _lastUserActionTsUtc = DateTime.MinValue;
@@ -2181,77 +2190,89 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
         }
     }
 
-    private bool TryRegisterUiHook(BindableObject target, string hookKey)
+    private bool TryRegisterUiHook(BindableObject target, string hookKey, Action? unsubscribe = null)
     {
         lock (_uiHookGate)
         {
             var state = _uiHookStates.GetOrCreateValue(target);
-            return state.HookKeys.Add(hookKey);
+            if (state.Generation != _uiHookGeneration)
+            {
+                state.Generation = _uiHookGeneration;
+                state.HookKeys.Clear();
+            }
+
+            if (!state.HookKeys.Add(hookKey))
+                return false;
+
+            if (unsubscribe != null)
+                _uiHookUnsubscribers.Add(unsubscribe);
+
+            return true;
         }
     }
 
     private void AttachButtonHook(Button button)
     {
-        if (!TryRegisterUiHook(button, "Button.Clicked"))
+        if (!TryRegisterUiHook(button, "Button.Clicked", () => button.Clicked -= OnButtonClicked))
             return;
         button.Clicked += OnButtonClicked;
     }
 
     private void AttachImageButtonHook(ImageButton imageButton)
     {
-        if (!TryRegisterUiHook(imageButton, "ImageButton.Clicked"))
+        if (!TryRegisterUiHook(imageButton, "ImageButton.Clicked", () => imageButton.Clicked -= OnImageButtonClicked))
             return;
         imageButton.Clicked += OnImageButtonClicked;
     }
 
     private void AttachEntryHook(Entry entry)
     {
-        if (!TryRegisterUiHook(entry, "Entry.Completed"))
+        if (!TryRegisterUiHook(entry, "Entry.Completed", () => entry.Completed -= OnEntryCompleted))
             return;
         entry.Completed += OnEntryCompleted;
     }
 
     private void AttachSearchBarHook(SearchBar searchBar)
     {
-        if (!TryRegisterUiHook(searchBar, "SearchBar.SearchButtonPressed"))
+        if (!TryRegisterUiHook(searchBar, "SearchBar.SearchButtonPressed", () => searchBar.SearchButtonPressed -= OnSearchBarSearchButtonPressed))
             return;
         searchBar.SearchButtonPressed += OnSearchBarSearchButtonPressed;
     }
 
     private void AttachCheckBoxHook(CheckBox checkBox)
     {
-        if (!TryRegisterUiHook(checkBox, "CheckBox.CheckedChanged"))
+        if (!TryRegisterUiHook(checkBox, "CheckBox.CheckedChanged", () => checkBox.CheckedChanged -= OnCheckBoxCheckedChanged))
             return;
         checkBox.CheckedChanged += OnCheckBoxCheckedChanged;
     }
 
     private void AttachSwitchHook(Switch toggle)
     {
-        if (!TryRegisterUiHook(toggle, "Switch.Toggled"))
+        if (!TryRegisterUiHook(toggle, "Switch.Toggled", () => toggle.Toggled -= OnSwitchToggled))
             return;
         toggle.Toggled += OnSwitchToggled;
     }
 
     private void AttachPickerHook(Picker picker)
     {
-        if (!TryRegisterUiHook(picker, "Picker.SelectedIndexChanged"))
+        if (!TryRegisterUiHook(picker, "Picker.SelectedIndexChanged", () => picker.SelectedIndexChanged -= OnPickerSelectedIndexChanged))
             return;
         picker.SelectedIndexChanged += OnPickerSelectedIndexChanged;
     }
 
     private void AttachCollectionViewHook(CollectionView collectionView)
     {
-        if (!TryRegisterUiHook(collectionView, "CollectionView.SelectionChanged"))
+        if (!TryRegisterUiHook(collectionView, "CollectionView.SelectionChanged", () => collectionView.SelectionChanged -= OnCollectionViewSelectionChanged))
             return;
         collectionView.SelectionChanged += OnCollectionViewSelectionChanged;
-        if (TryRegisterUiHook(collectionView, "CollectionView.Scrolled"))
+        if (TryRegisterUiHook(collectionView, "CollectionView.Scrolled", () => collectionView.Scrolled -= OnCollectionViewScrolled))
             collectionView.Scrolled += OnCollectionViewScrolled;
         AttachRenderHooks(collectionView, "collection");
     }
 
     private void AttachScrollViewHook(ScrollView scrollView)
     {
-        if (TryRegisterUiHook(scrollView, "ScrollView.Scrolled"))
+        if (TryRegisterUiHook(scrollView, "ScrollView.Scrolled", () => scrollView.Scrolled -= OnScrollViewScrolled))
             scrollView.Scrolled += OnScrollViewScrolled;
         AttachRenderHooks(scrollView, "scroll");
     }
@@ -2264,28 +2285,28 @@ public class DevFlowAgentService : IDisposable, IMarkerPublisher
         if (string.IsNullOrWhiteSpace(renderState.Role))
             renderState.Role = role;
 
-        if (TryRegisterUiHook(element, $"{role}.SizeChanged"))
+        if (TryRegisterUiHook(element, $"{role}.SizeChanged", () => element.SizeChanged -= OnTrackedElementSizeChanged))
             element.SizeChanged += OnTrackedElementSizeChanged;
-        if (TryRegisterUiHook(element, $"{role}.MeasureInvalidated"))
+        if (TryRegisterUiHook(element, $"{role}.MeasureInvalidated", () => element.MeasureInvalidated -= OnTrackedElementMeasureInvalidated))
             element.MeasureInvalidated += OnTrackedElementMeasureInvalidated;
     }
 
     private void AttachTapGestureHook(TapGestureRecognizer tapGesture)
     {
-        if (!TryRegisterUiHook(tapGesture, "TapGestureRecognizer.Tapped"))
+        if (!TryRegisterUiHook(tapGesture, "TapGestureRecognizer.Tapped", () => tapGesture.Tapped -= OnTapGestureTapped))
             return;
         tapGesture.Tapped += OnTapGestureTapped;
     }
 
     private void AttachPageHooks(Page page)
     {
-        if (TryRegisterUiHook(page, "Page.Appearing"))
+        if (TryRegisterUiHook(page, "Page.Appearing", () => page.Appearing -= OnPageAppearing))
             page.Appearing += OnPageAppearing;
-        if (TryRegisterUiHook(page, "Page.Disappearing"))
+        if (TryRegisterUiHook(page, "Page.Disappearing", () => page.Disappearing -= OnPageDisappearing))
             page.Disappearing += OnPageDisappearing;
-        if (TryRegisterUiHook(page, "Page.SizeChanged"))
+        if (TryRegisterUiHook(page, "Page.SizeChanged", () => page.SizeChanged -= OnPageSizeChanged))
             page.SizeChanged += OnPageSizeChanged;
-        if (TryRegisterUiHook(page, "Page.MeasureInvalidated"))
+        if (TryRegisterUiHook(page, "Page.MeasureInvalidated", () => page.MeasureInvalidated -= OnPageMeasureInvalidated))
             page.MeasureInvalidated += OnPageMeasureInvalidated;
         AttachRenderHooks(page, "page");
     }

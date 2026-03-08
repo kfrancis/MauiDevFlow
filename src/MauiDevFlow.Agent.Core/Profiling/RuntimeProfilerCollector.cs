@@ -23,6 +23,7 @@ public class RuntimeProfilerCollector : IProfilerCollector
         {
             Platform = GetPlatformName(),
             ManagedMemorySupported = true,
+            NativeMemorySupported = true,
             GcSupported = true,
             CpuPercentSupported = true,
             ThreadCountSupported = true,
@@ -38,7 +39,7 @@ public class RuntimeProfilerCollector : IProfilerCollector
             _capabilities.NativeFrameTimingsSupported = true;
             _capabilities.JankEventsSupported = true;
             _capabilities.UiThreadStallSupported = true;
-            _capabilities.FrameTimingsEstimated = false;
+            _capabilities.FrameTimingsEstimated = !_nativeFrameStatsProvider.ProvidesExactFrameTimings;
         }
     }
 
@@ -71,6 +72,7 @@ public class RuntimeProfilerCollector : IProfilerCollector
         {
             _capabilities.CpuPercentSupported = false;
             _capabilities.ThreadCountSupported = false;
+            _capabilities.NativeMemorySupported = false;
         }
 
         if (_capabilities.CpuPercentSupported)
@@ -122,14 +124,16 @@ public class RuntimeProfilerCollector : IProfilerCollector
 
         var now = DateTime.UtcNow;
         var elapsedMs = Math.Max(1d, (now - _lastSampleTimestampUtc).TotalMilliseconds);
-        var cpuPercent = TryReadCpuPercent(elapsedMs);
-        var threadCount = TryReadThreadCount();
+        var processSnapshotAvailable = TryRefreshProcessSnapshot();
+        var cpuPercent = TryReadCpuPercent(elapsedMs, processSnapshotAvailable);
+        var threadCount = TryReadThreadCount(processSnapshotAvailable);
 
         sample = BuildFrameSample(now);
         sample.ManagedBytes = GC.GetTotalMemory(false);
         sample.Gc0 = GC.CollectionCount(0);
         sample.Gc1 = GC.CollectionCount(1);
         sample.Gc2 = GC.CollectionCount(2);
+        sample.NativeMemoryBytes ??= TryReadNativeMemoryBytes(processSnapshotAvailable, sample.ManagedBytes);
         sample.CpuPercent = cpuPercent;
         sample.ThreadCount = threadCount;
 
@@ -153,8 +157,11 @@ public class RuntimeProfilerCollector : IProfilerCollector
                 WorstFrameTimeMs = nativeSnapshot.WorstFrameTimeMs,
                 JankFrameCount = nativeSnapshot.JankFrameCount,
                 UiThreadStallCount = nativeSnapshot.UiThreadStallCount,
+                NativeMemoryBytes = nativeSnapshot.NativeMemoryBytes,
                 FrameSource = nativeSnapshot.Source,
-                FrameQuality = "native.exact"
+                FrameQuality = _nativeFrameStatsProvider.ProvidesExactFrameTimings
+                    ? "native.exact"
+                    : "native.cadence"
             };
         }
 
@@ -178,14 +185,37 @@ public class RuntimeProfilerCollector : IProfilerCollector
         };
     }
 
-    private double? TryReadCpuPercent(double elapsedMs)
+    private bool TryRefreshProcessSnapshot()
     {
-        if (!_capabilities.CpuPercentSupported)
-            return null;
+        if (!_capabilities.CpuPercentSupported
+            && !_capabilities.ThreadCountSupported
+            && !_capabilities.NativeMemorySupported)
+            return false;
 
         try
         {
             _process.Refresh();
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is InvalidOperationException
+            || ex is NotSupportedException
+            || ex is PlatformNotSupportedException)
+        {
+            _capabilities.CpuPercentSupported = false;
+            _capabilities.ThreadCountSupported = false;
+            _capabilities.NativeMemorySupported = false;
+            return false;
+        }
+    }
+
+    private double? TryReadCpuPercent(double elapsedMs, bool processSnapshotAvailable)
+    {
+        if (!_capabilities.CpuPercentSupported || !processSnapshotAvailable)
+            return null;
+
+        try
+        {
             var cpuTime = _process.TotalProcessorTime;
             var cpuDeltaMs = (cpuTime - _lastCpuTime).TotalMilliseconds;
             _lastCpuTime = cpuTime;
@@ -206,14 +236,13 @@ public class RuntimeProfilerCollector : IProfilerCollector
         }
     }
 
-    private int? TryReadThreadCount()
+    private int? TryReadThreadCount(bool processSnapshotAvailable)
     {
-        if (!_capabilities.ThreadCountSupported)
+        if (!_capabilities.ThreadCountSupported || !processSnapshotAvailable)
             return null;
 
         try
         {
-            _process.Refresh();
             return _process.Threads.Count;
         }
         catch (Exception ex) when (
@@ -222,6 +251,29 @@ public class RuntimeProfilerCollector : IProfilerCollector
             || ex is PlatformNotSupportedException)
         {
             _capabilities.ThreadCountSupported = false;
+            return null;
+        }
+    }
+
+    private long? TryReadNativeMemoryBytes(bool processSnapshotAvailable, long managedBytes)
+    {
+        if (!_capabilities.NativeMemorySupported || !processSnapshotAvailable)
+            return null;
+
+        try
+        {
+            var workingSetBytes = _process.WorkingSet64;
+            if (workingSetBytes <= 0)
+                return null;
+
+            return Math.Max(0L, workingSetBytes - managedBytes);
+        }
+        catch (Exception ex) when (
+            ex is InvalidOperationException
+            || ex is NotSupportedException
+            || ex is PlatformNotSupportedException)
+        {
+            _capabilities.NativeMemorySupported = false;
             return null;
         }
     }

@@ -10,11 +10,13 @@ public sealed class NativeFrameStatsSnapshot
     public double? WorstFrameTimeMs { get; set; }
     public int JankFrameCount { get; set; }
     public int UiThreadStallCount { get; set; }
+    public long? NativeMemoryBytes { get; set; }
 }
 
 public interface INativeFrameStatsProvider : IDisposable
 {
     bool IsSupported { get; }
+    bool ProvidesExactFrameTimings { get; }
     string Source { get; }
     void Start();
     void Stop();

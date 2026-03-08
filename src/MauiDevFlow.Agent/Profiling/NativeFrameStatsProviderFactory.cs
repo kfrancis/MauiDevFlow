@@ -1,8 +1,10 @@
 using Microsoft.Maui.ApplicationModel;
 using MauiDevFlow.Agent.Core.Profiling;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 #if ANDROID
+using Android.OS;
 using Android.Views;
 using Microsoft.Maui.Devices;
 #endif
@@ -10,6 +12,9 @@ using Microsoft.Maui.Devices;
 using CoreAnimation;
 using Foundation;
 using Microsoft.Maui.Devices;
+#endif
+#if WINDOWS
+using Microsoft.UI.Xaml.Media;
 #endif
 
 namespace MauiDevFlow.Agent.Profiling;
@@ -19,9 +24,13 @@ internal static class NativeFrameStatsProviderFactory
     public static INativeFrameStatsProvider? Create()
     {
 #if ANDROID
-        return new AndroidChoreographerFrameStatsProvider();
+        return AndroidFrameMetricsStatsProvider.IsApiSupported
+            ? new AndroidFrameMetricsStatsProvider()
+            : new AndroidChoreographerFrameStatsProvider();
 #elif IOS || MACCATALYST
         return new AppleDisplayLinkFrameStatsProvider();
+#elif WINDOWS
+        return new WindowsCompositionFrameStatsProvider();
 #else
         return null;
 #endif
@@ -31,7 +40,7 @@ internal static class NativeFrameStatsProviderFactory
 internal sealed class FrameStatsAccumulator
 {
     private readonly object _gate = new();
-    private readonly List<double> _durationsMs = new();
+    private readonly Queue<double> _durationsMs = new();
     private readonly double _jankThresholdMs;
     private readonly double _stallThresholdMs;
     private readonly int _maxBufferedFrames;
@@ -50,9 +59,9 @@ internal sealed class FrameStatsAccumulator
 
         lock (_gate)
         {
-            _durationsMs.Add(durationMs);
+            _durationsMs.Enqueue(durationMs);
             if (_durationsMs.Count > _maxBufferedFrames)
-                _durationsMs.RemoveRange(0, _durationsMs.Count - _maxBufferedFrames);
+                _durationsMs.Dequeue();
         }
     }
 
@@ -67,7 +76,7 @@ internal sealed class FrameStatsAccumulator
                 return false;
             }
 
-            data = new List<double>(_durationsMs);
+            data = _durationsMs.ToList();
             _durationsMs.Clear();
         }
 
@@ -104,6 +113,109 @@ internal sealed class FrameStatsAccumulator
 }
 
 #if ANDROID
+internal sealed class AndroidFrameMetricsStatsProvider : Java.Lang.Object, INativeFrameStatsProvider, Android.Views.Window.IOnFrameMetricsAvailableListener
+{
+    private readonly FrameStatsAccumulator _accumulator;
+    private WeakReference<Android.Views.Window>? _windowRef;
+    private bool _running;
+
+    public AndroidFrameMetricsStatsProvider()
+    {
+        var frameBudgetMs = ResolveFrameBudgetMs();
+        _accumulator = new FrameStatsAccumulator(frameBudgetMs);
+    }
+
+    public static bool IsApiSupported => Build.VERSION.SdkInt >= BuildVersionCodes.N;
+    public bool IsSupported => IsApiSupported;
+    public bool ProvidesExactFrameTimings => true;
+    public string Source => "native.android.framemetrics";
+
+    public void Start()
+    {
+        if (_running)
+            return;
+        if (!IsSupported)
+            throw new PlatformNotSupportedException("FrameMetrics requires Android API 24+.");
+
+        _running = true;
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            var activity = Platform.CurrentActivity;
+            var window = activity?.Window;
+            if (window == null)
+                throw new InvalidOperationException("Unable to access current Android window for frame metrics.");
+
+            _windowRef = new WeakReference<Android.Views.Window>(window);
+            window.AddOnFrameMetricsAvailableListener(this, null);
+        });
+    }
+
+    public void Stop()
+    {
+        _running = false;
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (_windowRef?.TryGetTarget(out var window) == true)
+                window.RemoveOnFrameMetricsAvailableListener(this);
+            _windowRef = null;
+        });
+    }
+
+    public bool TryCollect(out NativeFrameStatsSnapshot snapshot)
+    {
+        if (!_accumulator.TryCreateSnapshot(Source, out snapshot))
+            return false;
+
+        snapshot.NativeMemoryBytes = TryReadAndroidNativeMemoryBytes();
+        return true;
+    }
+
+    public void OnFrameMetricsAvailable(Android.Views.Window? window, FrameMetrics? frameMetrics, int dropCountSinceLastInvocation)
+    {
+        if (!_running || frameMetrics == null)
+            return;
+
+        var durationNs = frameMetrics.GetMetric((int)FrameMetricsId.TotalDuration);
+        if (durationNs <= 0)
+            return;
+
+        _accumulator.Record(durationNs / 1_000_000d);
+    }
+
+    public new void Dispose()
+    {
+        Stop();
+        base.Dispose();
+    }
+
+    private static long? TryReadAndroidNativeMemoryBytes()
+    {
+        try
+        {
+            return Android.OS.Debug.NativeHeapAllocatedSize;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static double ResolveFrameBudgetMs()
+    {
+        try
+        {
+            var refreshRate = DeviceDisplay.Current.MainDisplayInfo.RefreshRate;
+            if (refreshRate > 1d && !double.IsInfinity(refreshRate) && !double.IsNaN(refreshRate))
+                return 1000d / refreshRate;
+        }
+        catch
+        {
+        }
+
+        return 1000d / 60d;
+    }
+}
+
 internal sealed class AndroidChoreographerFrameStatsProvider : Java.Lang.Object, INativeFrameStatsProvider, Choreographer.IFrameCallback
 {
     private readonly FrameStatsAccumulator _accumulator;
@@ -117,6 +229,7 @@ internal sealed class AndroidChoreographerFrameStatsProvider : Java.Lang.Object,
     }
 
     public bool IsSupported => true;
+    public bool ProvidesExactFrameTimings => false;
     public string Source => "native.android.choreographer";
 
     public void Start()
@@ -136,7 +249,13 @@ internal sealed class AndroidChoreographerFrameStatsProvider : Java.Lang.Object,
     }
 
     public bool TryCollect(out NativeFrameStatsSnapshot snapshot)
-        => _accumulator.TryCreateSnapshot(Source, out snapshot);
+    {
+        if (!_accumulator.TryCreateSnapshot(Source, out snapshot))
+            return false;
+
+        snapshot.NativeMemoryBytes = TryReadAndroidNativeMemoryBytes();
+        return true;
+    }
 
     public void DoFrame(long frameTimeNanos)
     {
@@ -173,6 +292,18 @@ internal sealed class AndroidChoreographerFrameStatsProvider : Java.Lang.Object,
 
         return 1000d / 60d;
     }
+
+    private static long? TryReadAndroidNativeMemoryBytes()
+    {
+        try
+        {
+            return Android.OS.Debug.NativeHeapAllocatedSize;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }
 #endif
 
@@ -191,6 +322,7 @@ internal sealed class AppleDisplayLinkFrameStatsProvider : INativeFrameStatsProv
     }
 
     public bool IsSupported => true;
+    public bool ProvidesExactFrameTimings => false;
     public string Source => "native.apple.cadisplaylink";
 
     public void Start()
@@ -219,7 +351,13 @@ internal sealed class AppleDisplayLinkFrameStatsProvider : INativeFrameStatsProv
     }
 
     public bool TryCollect(out NativeFrameStatsSnapshot snapshot)
-        => _accumulator.TryCreateSnapshot(Source, out snapshot);
+    {
+        if (!_accumulator.TryCreateSnapshot(Source, out snapshot))
+            return false;
+
+        snapshot.NativeMemoryBytes = TryReadResidentMemoryBytes();
+        return true;
+    }
 
     public void Dispose()
     {
@@ -254,6 +392,84 @@ internal sealed class AppleDisplayLinkFrameStatsProvider : INativeFrameStatsProv
         }
 
         return 1000d / 60d;
+    }
+
+    private static long? TryReadResidentMemoryBytes()
+    {
+        try
+        {
+            return Process.GetCurrentProcess().WorkingSet64;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}
+#endif
+
+#if WINDOWS
+internal sealed class WindowsCompositionFrameStatsProvider : INativeFrameStatsProvider
+{
+    private readonly FrameStatsAccumulator _accumulator = new(1000d / 60d);
+    private bool _running;
+    private TimeSpan? _lastRenderingTime;
+
+    public bool IsSupported => true;
+    public bool ProvidesExactFrameTimings => false;
+    public string Source => "native.windows.compositiontarget";
+
+    public void Start()
+    {
+        if (_running)
+            return;
+
+        _running = true;
+        _lastRenderingTime = null;
+        MainThread.BeginInvokeOnMainThread(() => CompositionTarget.Rendering += OnRendering);
+    }
+
+    public void Stop()
+    {
+        _running = false;
+        MainThread.BeginInvokeOnMainThread(() => CompositionTarget.Rendering -= OnRendering);
+    }
+
+    public bool TryCollect(out NativeFrameStatsSnapshot snapshot)
+    {
+        if (!_accumulator.TryCreateSnapshot(Source, out snapshot))
+            return false;
+
+        snapshot.NativeMemoryBytes = TryReadResidentMemoryBytes();
+        return true;
+    }
+
+    public void Dispose() => Stop();
+
+    private void OnRendering(object? sender, object args)
+    {
+        if (!_running || args is not RenderingEventArgs renderingArgs)
+            return;
+
+        if (_lastRenderingTime.HasValue)
+        {
+            var durationMs = (renderingArgs.RenderingTime - _lastRenderingTime.Value).TotalMilliseconds;
+            _accumulator.Record(durationMs);
+        }
+
+        _lastRenderingTime = renderingArgs.RenderingTime;
+    }
+
+    private static long? TryReadResidentMemoryBytes()
+    {
+        try
+        {
+            return Process.GetCurrentProcess().WorkingSet64;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
 #endif
