@@ -15,11 +15,12 @@ public sealed class LogsTool
 		McpAgentSession session,
 		[Description("Agent HTTP port (optional if only one agent connected)")] int? agentPort = null,
 		[Description("Maximum number of log entries to return (default: 50)")] int limit = 50,
+		[Description("Number of newest entries to skip (for pagination)")] int skip = 0,
 		[Description("Minimum log level: trace, debug, info, warning, error, critical")] string? minLevel = null,
 		[Description("Log source filter: native, webview, or all (default: all)")] string? source = null)
 	{
 		var agent = await session.GetAgentClientAsync(agentPort);
-		var url = $"{agent.BaseUrl}/api/logs?limit={limit}";
+		var url = $"{agent.BaseUrl}/api/logs?limit={limit}&skip={skip}";
 		if (!string.IsNullOrEmpty(source) && source != "all")
 			url += $"&source={source}";
 

@@ -47,20 +47,23 @@ public sealed class InteractionTools
 			: $"Failed to clear element '{elementId}'.";
 	}
 
-	[McpServerTool(Name = "maui_scroll"), Description("Scroll a ScrollView element by delta X and Y values.")]
+	[McpServerTool(Name = "maui_scroll"), Description("Scroll a ScrollView, CollectionView, or ListView. Supports delta-based scrolling, scrolling to an item index, or scrolling an element into view.")]
 	public static async Task<string> Scroll(
 		McpAgentSession session,
-		[Description("Element ID of the ScrollView")] string elementId,
+		[Description("Element ID of the scroll container, or element to scroll into view")] string? elementId = null,
 		[Description("Horizontal scroll delta in pixels")] double? x = null,
 		[Description("Vertical scroll delta in pixels")] double? y = null,
 		[Description("Whether to animate the scroll (default: true)")] bool? animated = null,
 		[Description("Window index for multi-window apps")] int? window = null,
+		[Description("Item index to scroll to (for CollectionView/ListView)")] int? itemIndex = null,
+		[Description("Group index for grouped CollectionView")] int? groupIndex = null,
+		[Description("Scroll position: MakeVisible (default), Start, Center, End")] string? scrollToPosition = null,
 		[Description("Agent HTTP port (optional if only one agent connected)")] int? agentPort = null)
 	{
 		var agent = await session.GetAgentClientAsync(agentPort);
-		var success = await agent.ScrollAsync(elementId, x ?? 0, y ?? 0, animated ?? true, window);
+		var success = await agent.ScrollAsync(elementId, x ?? 0, y ?? 0, animated ?? true, window, itemIndex, groupIndex, scrollToPosition);
 		return success
-			? $"Scrolled element '{elementId}' successfully."
+			? elementId is not null ? $"Scrolled element '{elementId}' successfully." : "Scrolled successfully."
 			: $"Failed to scroll element '{elementId}'. Element may not be a ScrollView.";
 	}
 }

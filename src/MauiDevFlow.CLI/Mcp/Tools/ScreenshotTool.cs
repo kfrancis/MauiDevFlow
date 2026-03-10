@@ -15,10 +15,12 @@ public sealed class ScreenshotTool
 		[Description("Agent HTTP port (optional if only one agent connected)")] int? agentPort = null,
 		[Description("Window index for multi-window apps (default: 0)")] int? window = null,
 		[Description("Element ID to capture a specific element")] string? elementId = null,
-		[Description("CSS selector to capture (first match, Blazor WebViews only)")] string? selector = null)
+		[Description("CSS selector to capture (first match, Blazor WebViews only)")] string? selector = null,
+		[Description("Resize screenshot to this max width in pixels (overrides auto-scaling)")] int? maxWidth = null,
+		[Description("Scale mode: 'native' keeps full HiDPI resolution, default auto-scales to 1x logical pixels")] string? scale = null)
 	{
 		var agent = await session.GetAgentClientAsync(agentPort);
-		var bytes = await agent.ScreenshotAsync(window, elementId, selector);
+		var bytes = await agent.ScreenshotAsync(window, elementId, selector, maxWidth, scale);
 		if (bytes == null || bytes.Length == 0)
 			throw new McpException("Screenshot failed — no image data returned. Is the agent connected and the app visible?");
 

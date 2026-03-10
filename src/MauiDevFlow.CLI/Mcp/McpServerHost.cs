@@ -31,7 +31,9 @@ public static class McpServerHost
 			.WithTools<NavigationTools>()
 			.WithTools<QueryTools>()
 			.WithTools<AgentTools>()
-			.WithTools<CdpTools>();
+			.WithTools<CdpTools>()
+			.WithTools<AssertTool>()
+			.WithTools<RecordingTools>();
 
 		await builder.Build().RunAsync();
 	}
