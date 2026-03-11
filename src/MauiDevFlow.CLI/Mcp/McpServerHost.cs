@@ -33,7 +33,10 @@ public static class McpServerHost
 			.WithTools<AgentTools>()
 			.WithTools<CdpTools>()
 			.WithTools<AssertTool>()
-			.WithTools<RecordingTools>();
+			.WithTools<RecordingTools>()
+			.WithTools<PreferencesTools>()
+			.WithTools<PlatformTools>()
+			.WithTools<SensorTools>();
 
 		await builder.Build().RunAsync();
 	}

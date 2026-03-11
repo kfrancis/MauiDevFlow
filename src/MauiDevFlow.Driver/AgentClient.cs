@@ -355,6 +355,121 @@ public class AgentClient : IDisposable
         }
     }
 
+    // ── Preferences ──
+
+    public async Task<JsonElement> GetPreferencesAsync(string? sharedName = null)
+    {
+        var path = "/api/preferences";
+        if (!string.IsNullOrEmpty(sharedName))
+            path += $"?sharedName={Uri.EscapeDataString(sharedName)}";
+        return await GetJsonAsync(path);
+    }
+
+    public async Task<JsonElement> GetPreferenceAsync(string key, string? type = null, string? sharedName = null)
+    {
+        var path = $"/api/preferences/{Uri.EscapeDataString(key)}";
+        var qs = new List<string>();
+        if (!string.IsNullOrEmpty(type)) qs.Add($"type={Uri.EscapeDataString(type)}");
+        if (!string.IsNullOrEmpty(sharedName)) qs.Add($"sharedName={Uri.EscapeDataString(sharedName)}");
+        if (qs.Count > 0) path += "?" + string.Join("&", qs);
+        return await GetJsonAsync(path);
+    }
+
+    public async Task<JsonElement> SetPreferenceAsync(string key, string value, string? type = null, string? sharedName = null)
+    {
+        var body = new Dictionary<string, object?> { ["value"] = value };
+        if (!string.IsNullOrEmpty(type)) body["type"] = type;
+        if (!string.IsNullOrEmpty(sharedName)) body["sharedName"] = sharedName;
+        var json = JsonSerializer.Serialize(body);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var response = await _http.PostAsync($"{_baseUrl}/api/preferences/{Uri.EscapeDataString(key)}", content);
+        var responseBody = await response.Content.ReadAsStringAsync();
+        return JsonSerializer.Deserialize<JsonElement>(responseBody);
+    }
+
+    public async Task<JsonElement> DeletePreferenceAsync(string key, string? sharedName = null)
+    {
+        var path = $"/api/preferences/{Uri.EscapeDataString(key)}";
+        if (!string.IsNullOrEmpty(sharedName))
+            path += $"?sharedName={Uri.EscapeDataString(sharedName)}";
+        var response = await _http.DeleteAsync($"{_baseUrl}{path}");
+        var responseBody = await response.Content.ReadAsStringAsync();
+        return JsonSerializer.Deserialize<JsonElement>(responseBody);
+    }
+
+    public async Task<bool> ClearPreferencesAsync(string? sharedName = null)
+    {
+        var path = "/api/preferences/clear";
+        if (!string.IsNullOrEmpty(sharedName))
+            path += $"?sharedName={Uri.EscapeDataString(sharedName)}";
+        return await PostActionAsync(path, new { });
+    }
+
+    // ── Secure Storage ──
+
+    public async Task<JsonElement> GetSecureStorageAsync(string key)
+    {
+        return await GetJsonAsync($"/api/secure-storage/{Uri.EscapeDataString(key)}");
+    }
+
+    public async Task<JsonElement> SetSecureStorageAsync(string key, string value)
+    {
+        var json = JsonSerializer.Serialize(new { value });
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var response = await _http.PostAsync($"{_baseUrl}/api/secure-storage/{Uri.EscapeDataString(key)}", content);
+        var responseBody = await response.Content.ReadAsStringAsync();
+        return JsonSerializer.Deserialize<JsonElement>(responseBody);
+    }
+
+    public async Task<JsonElement> DeleteSecureStorageAsync(string key)
+    {
+        var response = await _http.DeleteAsync($"{_baseUrl}/api/secure-storage/{Uri.EscapeDataString(key)}");
+        var responseBody = await response.Content.ReadAsStringAsync();
+        return JsonSerializer.Deserialize<JsonElement>(responseBody);
+    }
+
+    public async Task<bool> ClearSecureStorageAsync()
+    {
+        return await PostActionAsync("/api/secure-storage/clear", new { });
+    }
+
+    // ── Platform info ──
+
+    public async Task<JsonElement> GetPlatformInfoAsync(string endpoint)
+    {
+        return await GetJsonAsync($"/api/platform/{endpoint}");
+    }
+
+    public async Task<JsonElement> GetGeolocationAsync(string? accuracy = null, int? timeoutSeconds = null)
+    {
+        var path = "/api/platform/geolocation";
+        var qs = new List<string>();
+        if (!string.IsNullOrEmpty(accuracy)) qs.Add($"accuracy={Uri.EscapeDataString(accuracy)}");
+        if (timeoutSeconds.HasValue) qs.Add($"timeout={timeoutSeconds.Value}");
+        if (qs.Count > 0) path += "?" + string.Join("&", qs);
+        return await GetJsonAsync(path);
+    }
+
+    // ── Sensors ──
+
+    public async Task<JsonElement> GetSensorsAsync()
+    {
+        return await GetJsonAsync("/api/sensors");
+    }
+
+    public async Task<bool> StartSensorAsync(string sensor, string? speed = null)
+    {
+        var path = $"/api/sensors/{Uri.EscapeDataString(sensor)}/start";
+        if (!string.IsNullOrEmpty(speed))
+            path += $"?speed={Uri.EscapeDataString(speed)}";
+        return await PostActionAsync(path, new { });
+    }
+
+    public async Task<bool> StopSensorAsync(string sensor)
+    {
+        return await PostActionAsync($"/api/sensors/{Uri.EscapeDataString(sensor)}/stop", new { });
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
