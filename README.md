@@ -333,6 +333,8 @@ auto-assigned by the broker (range 10223–10899), or configurable via `.mauidev
 | `/api/profiler/span` | POST | Publish manual span `{"kind":"ui.operation","name":"...","startTsUtc":"...","endTsUtc":"..."}` |
 | `/api/profiler/hotspots?kind=ui.operation&minDurationMs=16&limit=20` | GET | Aggregated slow-operation hotspots ordered by P95 duration |
 
+Profiler sample payloads also include `nativeMemoryKind` to disambiguate what `nativeMemoryBytes` means for that sample. Current values include `apple.phys-footprint`, `android.native-heap-allocated`, `windows.working-set`, and `process.working-set-minus-managed` when the collector falls back to process working set minus managed memory.
+
 ## Project Structure
 
 ```

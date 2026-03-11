@@ -182,6 +182,9 @@ internal sealed class AndroidFrameMetricsStatsProvider : Java.Lang.Object, INati
             return false;
 
         snapshot.NativeMemoryBytes = TryReadAndroidNativeMemoryBytes();
+        snapshot.NativeMemoryKind = snapshot.NativeMemoryBytes.HasValue
+            ? "android.native-heap-allocated"
+            : null;
         return true;
     }
 
@@ -278,6 +281,9 @@ internal sealed class AndroidChoreographerFrameStatsProvider : Java.Lang.Object,
             return false;
 
         snapshot.NativeMemoryBytes = TryReadAndroidNativeMemoryBytes();
+        snapshot.NativeMemoryKind = snapshot.NativeMemoryBytes.HasValue
+            ? "android.native-heap-allocated"
+            : null;
         return true;
     }
 
@@ -386,6 +392,9 @@ internal sealed class AppleDisplayLinkFrameStatsProvider : INativeFrameStatsProv
             return false;
 
         snapshot.NativeMemoryBytes = TryReadPhysFootprint();
+        snapshot.NativeMemoryKind = snapshot.NativeMemoryBytes.HasValue
+            ? "apple.phys-footprint"
+            : null;
         return true;
     }
 
@@ -527,6 +536,9 @@ internal sealed class WindowsCompositionFrameStatsProvider : INativeFrameStatsPr
             return false;
 
         snapshot.NativeMemoryBytes = TryReadResidentMemoryBytes();
+        snapshot.NativeMemoryKind = snapshot.NativeMemoryBytes.HasValue
+            ? "windows.working-set"
+            : null;
         return true;
     }
 

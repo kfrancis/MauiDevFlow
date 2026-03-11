@@ -11,6 +11,7 @@ public sealed class NativeFrameStatsSnapshot
     public int JankFrameCount { get; set; }
     public int UiThreadStallCount { get; set; }
     public long? NativeMemoryBytes { get; set; }
+    public string? NativeMemoryKind { get; set; }
 }
 
 public interface INativeFrameStatsProvider : IDisposable

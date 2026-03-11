@@ -20,6 +20,7 @@ public class ProfilerSample
     public int Gc1 { get; set; }
     public int Gc2 { get; set; }
     public long? NativeMemoryBytes { get; set; }
+    public string? NativeMemoryKind { get; set; }
     public double? CpuPercent { get; set; }
     public int? ThreadCount { get; set; }
     public int JankFrameCount { get; set; }

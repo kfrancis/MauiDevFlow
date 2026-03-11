@@ -30,6 +30,7 @@ public class ProfilerCoreTests
                     WorstFrameTimeMs = 31.2,
                     ManagedBytes = 123_456,
                     NativeMemoryBytes = 654_321,
+                    NativeMemoryKind = "android.native-heap-allocated",
                     Gc0 = 10,
                     Gc1 = 4,
                     Gc2 = 1,
@@ -79,6 +80,7 @@ public class ProfilerCoreTests
         Assert.Equal(4, parsed.SpanCursor);
         Assert.Equal(123_456, parsed.Samples[0].ManagedBytes);
         Assert.Equal(654_321, parsed.Samples[0].NativeMemoryBytes);
+        Assert.Equal("android.native-heap-allocated", parsed.Samples[0].NativeMemoryKind);
         Assert.Equal("native.android.choreographer", parsed.Samples[0].FrameSource);
         Assert.Equal(2, parsed.Samples[0].JankFrameCount);
     }
@@ -175,6 +177,10 @@ public class ProfilerCoreTests
         Assert.StartsWith("estimated", sample1.FrameQuality);
         Assert.True(sample1.Fps > 0);
         Assert.True(sample1.FrameTimeMsP95 > 0);
+        if (sample1.NativeMemoryBytes.HasValue)
+            Assert.Equal("process.working-set-minus-managed", sample1.NativeMemoryKind);
+        else
+            Assert.Null(sample1.NativeMemoryKind);
         Assert.True(sample2.TsUtc > sample1.TsUtc);
     }
 
@@ -211,6 +217,30 @@ public class ProfilerCoreTests
         Assert.False(capabilities.NativeFrameTimingsSupported);
         Assert.False(capabilities.JankEventsSupported);
         Assert.False(capabilities.UiThreadStallSupported);
+    }
+
+    [Fact]
+    public void RuntimeProfilerCollector_PropagatesNativeMemoryKindFromProvider()
+    {
+        var provider = new SnapshotNativeProvider(new NativeFrameStatsSnapshot
+        {
+            Source = "native.test",
+            Fps = 60,
+            FrameTimeMsP50 = 16.7,
+            FrameTimeMsP95 = 20.5,
+            WorstFrameTimeMs = 24.1,
+            NativeMemoryBytes = 42_000,
+            NativeMemoryKind = "apple.phys-footprint"
+        });
+        var collector = new RuntimeProfilerCollector(provider);
+
+        collector.Start(100);
+        var collected = collector.TryCollect(out var sample);
+        collector.Stop();
+
+        Assert.True(collected);
+        Assert.Equal(42_000, sample.NativeMemoryBytes);
+        Assert.Equal("apple.phys-footprint", sample.NativeMemoryKind);
     }
 
     [Fact]
@@ -345,6 +375,42 @@ public class ProfilerCoreTests
         {
             snapshot = new NativeFrameStatsSnapshot();
             return false;
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class SnapshotNativeProvider(NativeFrameStatsSnapshot snapshotToReturn) : INativeFrameStatsProvider
+    {
+        public bool IsSupported => true;
+        public bool ProvidesExactFrameTimings => true;
+        public string Source => snapshotToReturn.Source;
+
+        public void Start()
+        {
+        }
+
+        public void Stop()
+        {
+        }
+
+        public bool TryCollect(out NativeFrameStatsSnapshot snapshot)
+        {
+            snapshot = new NativeFrameStatsSnapshot
+            {
+                Source = snapshotToReturn.Source,
+                Fps = snapshotToReturn.Fps,
+                FrameTimeMsP50 = snapshotToReturn.FrameTimeMsP50,
+                FrameTimeMsP95 = snapshotToReturn.FrameTimeMsP95,
+                WorstFrameTimeMs = snapshotToReturn.WorstFrameTimeMs,
+                JankFrameCount = snapshotToReturn.JankFrameCount,
+                UiThreadStallCount = snapshotToReturn.UiThreadStallCount,
+                NativeMemoryBytes = snapshotToReturn.NativeMemoryBytes,
+                NativeMemoryKind = snapshotToReturn.NativeMemoryKind
+            };
+            return true;
         }
 
         public void Dispose()
