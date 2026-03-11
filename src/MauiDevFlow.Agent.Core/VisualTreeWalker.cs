@@ -1192,12 +1192,15 @@ public class VisualTreeWalker
 
     private ElementInfo CreateElementInfo(IVisualTreeElement element, string id, string? parentId)
     {
+        // Try to resolve Comet view type first (if Comet is loaded)
+        var cometResolved = CometViewResolver.TryResolveCometView(element);
+
         var info = new ElementInfo
         {
             Id = id,
             ParentId = parentId,
-            Type = element.GetType().Name,
-            FullType = element.GetType().FullName ?? element.GetType().Name,
+            Type = cometResolved?.Type ?? element.GetType().Name,
+            FullType = cometResolved?.FullType ?? element.GetType().FullName ?? element.GetType().Name,
         };
 
         if (element is VisualElement ve)
@@ -1225,9 +1228,33 @@ public class VisualTreeWalker
             // Resolve window-absolute bounds via platform-native APIs
             info.WindowBounds = ResolveWindowBounds(ve);
         }
+        // Comet views implement IView but NOT VisualElement — extract info from IView + handler
+        else if (element is IView iView)
+        {
+            info.IsVisible = iView.Visibility != Visibility.Collapsed;
+            info.IsEnabled = iView.IsEnabled;
+            info.Opacity = double.IsFinite(iView.Opacity) ? iView.Opacity : 1;
+
+            // Try to get bounds from the IView's Frame
+            var frame = iView.Frame;
+            if (frame.Width > 0 || frame.Height > 0)
+            {
+                info.Bounds = new BoundsInfo
+                {
+                    X = double.IsFinite(frame.X) ? frame.X : 0,
+                    Y = double.IsFinite(frame.Y) ? frame.Y : 0,
+                    Width = double.IsFinite(frame.Width) ? frame.Width : 0,
+                    Height = double.IsFinite(frame.Height) ? frame.Height : 0
+                };
+            }
+
+            // Try to extract text from Comet views via IText interface
+            if (element is IText iText && !string.IsNullOrEmpty(iText.Text))
+                info.Text = iText.Text;
+        }
 
         // Extract text from common controls (including Shell elements)
-        info.Text = element switch
+        info.Text ??= element switch
         {
             Label l => l.Text,
             Button b => b.Text,
@@ -1236,6 +1263,8 @@ public class VisualTreeWalker
             SearchBar sb => sb.Text,
             Span s => s.Text,
             BaseShellItem si => si.Title,
+            // Fallback to IText interface for non-Controls types (e.g. Comet views)
+            IText it when info.Text == null => it.Text,
             _ => null
         };
 
@@ -1295,6 +1324,23 @@ public class VisualTreeWalker
                 }
             }
             catch { /* ItemsSource may not support counting */ }
+        }
+
+        // Add Comet-specific properties if this is a Comet view
+        if (cometResolved != null)
+        {
+            info.NativeProperties ??= new Dictionary<string, string?>();
+            foreach (var kvp in cometResolved.Value.Properties)
+            {
+                info.NativeProperties[kvp.Key] = kvp.Value;
+            }
+
+            // Optionally add environment values (can be verbose, so commented out by default)
+            // var envValues = CometViewResolver.GetEnvironmentValues(cometResolved.Value.CometView);
+            // foreach (var kvp in envValues)
+            // {
+            //     info.NativeProperties[$"Env_{kvp.Key}"] = kvp.Value;
+            // }
         }
 
         return info;
