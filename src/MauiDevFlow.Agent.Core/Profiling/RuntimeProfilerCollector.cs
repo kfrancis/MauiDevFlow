@@ -133,7 +133,12 @@ public class RuntimeProfilerCollector : IProfilerCollector, IDisposable
         sample.Gc0 = GC.CollectionCount(0);
         sample.Gc1 = GC.CollectionCount(1);
         sample.Gc2 = GC.CollectionCount(2);
-        sample.NativeMemoryBytes ??= TryReadNativeMemoryBytes(processSnapshotAvailable, sample.ManagedBytes);
+        if (!sample.NativeMemoryBytes.HasValue)
+        {
+            var nativeMemory = TryReadNativeMemory(processSnapshotAvailable, sample.ManagedBytes);
+            sample.NativeMemoryBytes = nativeMemory.Bytes;
+            sample.NativeMemoryKind = nativeMemory.Kind;
+        }
         sample.CpuPercent = cpuPercent;
         sample.ThreadCount = threadCount;
 
@@ -158,6 +163,7 @@ public class RuntimeProfilerCollector : IProfilerCollector, IDisposable
                 JankFrameCount = nativeSnapshot.JankFrameCount,
                 UiThreadStallCount = nativeSnapshot.UiThreadStallCount,
                 NativeMemoryBytes = nativeSnapshot.NativeMemoryBytes,
+                NativeMemoryKind = nativeSnapshot.NativeMemoryKind,
                 FrameSource = nativeSnapshot.Source,
                 FrameQuality = _nativeFrameStatsProvider.ProvidesExactFrameTimings
                     ? "native.exact"
@@ -255,18 +261,18 @@ public class RuntimeProfilerCollector : IProfilerCollector, IDisposable
         }
     }
 
-    private long? TryReadNativeMemoryBytes(bool processSnapshotAvailable, long managedBytes)
+    private (long? Bytes, string? Kind) TryReadNativeMemory(bool processSnapshotAvailable, long managedBytes)
     {
         if (!_capabilities.NativeMemorySupported || !processSnapshotAvailable)
-            return null;
+            return (null, null);
 
         try
         {
             var workingSetBytes = _process.WorkingSet64;
             if (workingSetBytes <= 0)
-                return null;
+                return (null, null);
 
-            return Math.Max(0L, workingSetBytes - managedBytes);
+            return (Math.Max(0L, workingSetBytes - managedBytes), "process.working-set-minus-managed");
         }
         catch (Exception ex) when (
             ex is InvalidOperationException
@@ -274,7 +280,7 @@ public class RuntimeProfilerCollector : IProfilerCollector, IDisposable
             || ex is PlatformNotSupportedException)
         {
             _capabilities.NativeMemorySupported = false;
-            return null;
+            return (null, null);
         }
     }
 

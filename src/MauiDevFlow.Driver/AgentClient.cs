@@ -464,6 +464,8 @@ public class ProfilerSample
     public int Gc2 { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("nativeMemoryBytes")]
     public long? NativeMemoryBytes { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("nativeMemoryKind")]
+    public string? NativeMemoryKind { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("cpuPercent")]
     public double? CpuPercent { get; set; }
     [System.Text.Json.Serialization.JsonPropertyName("threadCount")]
