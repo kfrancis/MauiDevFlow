@@ -8,7 +8,7 @@
 
   <!-- Common NuGet package metadata -->
   <PropertyGroup>
-    <Version>0.22.0</Version>
+    <Version>0.23.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>MauiDevFlow Contributors</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
