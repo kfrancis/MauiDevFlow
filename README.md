@@ -21,6 +21,9 @@ manually check the simulator.
 - **Blazor WebView Debugging** — CDP bridge using Chobitsu for JavaScript evaluation, DOM manipulation, page navigation. Supports multiple BlazorWebViews per app with independent targeting
 - **Unified Logging** — Native `ILogger` and WebView `console.log/warn/error` unified into a single log stream with source filtering
 - **Network Request Monitoring** — Automatic HTTP traffic interception via DelegatingHandler with real-time WebSocket streaming, body capture, and JSONL output
+- **App Storage Management** — Read, write, and delete Preferences (typed key-value) and SecureStorage entries remotely
+- **Platform Features** — Query device info, battery, connectivity, display, permissions, version tracking, geolocation, and app info
+- **Sensor Streaming** — Start/stop device sensors (accelerometer, gyroscope, compass, barometer, magnetometer, orientation) with real-time WebSocket streaming
 - **Broker Daemon** — Automatic port assignment and agent discovery for simultaneous multi-app debugging
 - **CLI Tool** (`maui-devflow`) — Scriptable commands for both native and Blazor automation
 - **Driver Library** — Platform-aware (Mac Catalyst, Android, iOS Simulator, Linux/GTK) orchestration
@@ -172,6 +175,22 @@ maui-devflow MAUI network list         # one-shot dump of recent requests
 maui-devflow MAUI network detail <id>  # full headers + body for a request
 maui-devflow MAUI network clear        # clear captured requests
 
+# App storage
+maui-devflow MAUI preferences list               # list known keys
+maui-devflow MAUI preferences get theme_mode      # get a value
+maui-devflow MAUI preferences set api_url "https://dev.example.com"
+maui-devflow MAUI secure-storage get auth_token   # encrypted storage
+
+# Platform info & sensors
+maui-devflow MAUI platform app-info               # app name, version, theme
+maui-devflow MAUI platform device-info            # manufacturer, model, OS
+maui-devflow MAUI platform battery                # charge level, state
+maui-devflow MAUI platform connectivity           # network access, profiles
+maui-devflow MAUI platform permissions            # check all permission statuses
+maui-devflow MAUI platform geolocation            # GPS coordinates
+maui-devflow MAUI sensors list                    # list sensors + status
+maui-devflow MAUI sensors stream accelerometer    # live WebSocket stream
+
 # Live edit native properties (no rebuild)
 maui-devflow MAUI set-property HeaderLabel TextColor "Tomato"
 maui-devflow MAUI set-property HeaderLabel FontSize "32"
@@ -281,6 +300,28 @@ auto-assigned by the broker (range 10223–10899), or configurable via `.mauidev
 | `/api/network/{id}` | GET | Full request/response details (headers, body) |
 | `/api/network/clear` | POST | Clear captured request buffer |
 | `/ws/network` | WS | WebSocket stream of HTTP requests (replay + live) |
+| `/api/preferences` | GET | List all known preference keys and values. `?sharedName=N` for shared container |
+| `/api/preferences/{key}` | GET | Get preference value. `?type=int\|bool\|double\|...` `?sharedName=N` |
+| `/api/preferences/{key}` | POST | Set preference `{"value":"...","type":"string","sharedName":null}` |
+| `/api/preferences/{key}` | DELETE | Remove a preference key |
+| `/api/preferences/clear` | POST | Clear all preferences (optionally `?sharedName=N`) |
+| `/api/secure-storage/{key}` | GET | Get secure storage value |
+| `/api/secure-storage/{key}` | POST | Set secure storage `{"value":"..."}` |
+| `/api/secure-storage/{key}` | DELETE | Remove secure storage entry |
+| `/api/secure-storage/clear` | POST | Clear all secure storage entries |
+| `/api/platform/app-info` | GET | App name, version, build, theme, layout direction |
+| `/api/platform/device-info` | GET | Manufacturer, model, platform, idiom, OS version |
+| `/api/platform/device-display` | GET | Screen width, height, density, orientation, refresh rate |
+| `/api/platform/battery` | GET | Charge level, state, power source, energy saver status |
+| `/api/platform/connectivity` | GET | Network access level and connection profiles |
+| `/api/platform/version-tracking` | GET | Version/build history, first launch info |
+| `/api/platform/permissions` | GET | Check status of all known permissions |
+| `/api/platform/permissions/{name}` | GET | Check a specific permission status |
+| `/api/platform/geolocation` | GET | GPS coordinates. `?accuracy=Medium` `?timeout=10` |
+| `/api/sensors` | GET | List all sensors with support/active/subscriber status |
+| `/api/sensors/{sensor}/start` | POST | Start sensor. `?speed=UI\|Game\|Fastest\|Default` |
+| `/api/sensors/{sensor}/stop` | POST | Stop sensor |
+| `/ws/sensors` | WS | Stream sensor readings. `?sensor=accelerometer` `?speed=UI` |
 | `/api/cdp` | POST | Forward CDP command to Blazor WebView. Use `?webview=<id>` to target a specific WebView |
 | `/api/cdp/webviews` | GET | List registered CDP WebViews (index, AutomationId, elementId, ready status) |
 | `/api/cdp/source` | GET | Get page HTML source. Use `?webview=<id>` to target a specific WebView |

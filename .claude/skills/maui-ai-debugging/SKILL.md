@@ -296,6 +296,73 @@ maui-devflow MAUI network --json | jq 'select(.statusCode >= 400)'
 **WebSocket streaming:** The live monitor uses WebSocket (`/ws/network`) for real-time push.
 Connecting clients receive a replay of buffered history, then live entries as they arrive.
 
+### 8. App Storage (Preferences & Secure Storage)
+
+Read, write, and delete app preferences and secure storage entries remotely. Useful for
+debugging state, resetting app configuration, or injecting test values.
+
+```bash
+# Preferences (typed key-value store)
+maui-devflow MAUI preferences list                       # list all known keys
+maui-devflow MAUI preferences get theme_mode             # get a string value
+maui-devflow MAUI preferences get counter --type int     # get a typed value
+maui-devflow MAUI preferences set api_url "https://dev.example.com"
+maui-devflow MAUI preferences set dark_mode true --type bool
+maui-devflow MAUI preferences delete temp_key
+maui-devflow MAUI preferences clear                      # clear all
+
+# Shared preferences containers
+maui-devflow MAUI preferences list --sharedName settings
+maui-devflow MAUI preferences set key val --sharedName settings
+
+# Secure Storage (encrypted, string values only)
+maui-devflow MAUI secure-storage get auth_token
+maui-devflow MAUI secure-storage set auth_token "eyJhbGc..."
+maui-devflow MAUI secure-storage delete auth_token
+maui-devflow MAUI secure-storage clear
+```
+
+**Note:** Preference key listing uses an internal registry (keys set via the agent are tracked).
+Keys set directly in app code won't appear in `list` unless also set via the agent.
+
+### 9. Platform Info & Device Features
+
+Query read-only device and app state. These are one-shot snapshot reads.
+
+```bash
+maui-devflow MAUI platform app-info         # app name, version, build, theme
+maui-devflow MAUI platform device-info      # manufacturer, model, OS, idiom
+maui-devflow MAUI platform display          # screen density, size, orientation
+maui-devflow MAUI platform battery          # charge level, state, power source
+maui-devflow MAUI platform connectivity     # WiFi/Cellular/Ethernet, network access
+maui-devflow MAUI platform version-tracking # version history, first launch detection
+maui-devflow MAUI platform permissions      # check all common permission statuses
+maui-devflow MAUI platform permissions camera  # check a specific permission
+maui-devflow MAUI platform geolocation      # current GPS coordinates
+maui-devflow MAUI platform geolocation --accuracy High --timeout 15
+```
+
+### 10. Device Sensors
+
+Start, stop, and stream real-time sensor data. Sensors auto-start when streaming.
+
+```bash
+maui-devflow MAUI sensors list                    # list sensors + status
+maui-devflow MAUI sensors start accelerometer     # start a sensor
+maui-devflow MAUI sensors stop accelerometer
+
+# Stream readings to stdout (JSONL)
+maui-devflow MAUI sensors stream accelerometer          # Ctrl+C to stop
+maui-devflow MAUI sensors stream gyroscope --speed Game  # higher frequency
+maui-devflow MAUI sensors stream compass --duration 10  # stop after 10 seconds
+```
+
+Available sensors: `accelerometer`, `barometer`, `compass`, `gyroscope`, `magnetometer`, `orientation`.
+Speed options: `UI` (default), `Game`, `Fastest`, `Default`.
+
+**WebSocket streaming:** Sensor data uses WebSocket (`/ws/sensors?sensor=<name>`) for
+real-time push. Each reading is a JSON object with `sensor`, `timestamp`, and `data` fields.
+
 ## Command Reference
 
 ### maui-devflow MAUI (Native Agent)
@@ -340,6 +407,27 @@ resolution options are provided.
 | `MAUI network list [--host H] [--method M]` | One-shot: dump recent captured HTTP requests |
 | `MAUI network detail <requestId>` | Full request/response details: headers, body, timing |
 | `MAUI network clear` | Clear the captured request buffer |
+| `MAUI preferences list [--sharedName N]` | List all known preference keys and values |
+| `MAUI preferences get <key> [--type T] [--sharedName N]` | Get a preference value. Types: string, int, bool, double, float, long, datetime |
+| `MAUI preferences set <key> <value> [--type T] [--sharedName N]` | Set a preference value |
+| `MAUI preferences delete <key> [--sharedName N]` | Remove a preference |
+| `MAUI preferences clear [--sharedName N]` | Clear all preferences |
+| `MAUI secure-storage get <key>` | Get a secure storage value |
+| `MAUI secure-storage set <key> <value>` | Set a secure storage value |
+| `MAUI secure-storage delete <key>` | Remove a secure storage entry |
+| `MAUI secure-storage clear` | Clear all secure storage entries |
+| `MAUI platform app-info` | App name, version, build, package, theme |
+| `MAUI platform device-info` | Device manufacturer, model, OS, idiom |
+| `MAUI platform display` | Screen density, size, orientation, refresh rate |
+| `MAUI platform battery` | Battery level, state, power source |
+| `MAUI platform connectivity` | Network access and connection profiles |
+| `MAUI platform version-tracking` | Current/previous/first version, build history, isFirstLaunch |
+| `MAUI platform permissions [name]` | Check permission status. Omit name to check all common permissions |
+| `MAUI platform geolocation [--accuracy A] [--timeout N]` | Get current GPS coordinates. Accuracy: Lowest, Low, Medium (default), High, Best |
+| `MAUI sensors list` | List available sensors and their current state (started/stopped) |
+| `MAUI sensors start <sensor> [--speed S]` | Start a sensor. Sensors: accelerometer, barometer, compass, gyroscope, magnetometer, orientation. Speed: UI (default), Game, Fastest, Default |
+| `MAUI sensors stop <sensor>` | Stop a sensor |
+| `MAUI sensors stream <sensor> [--speed S] [--duration N]` | Stream sensor readings via WebSocket. Duration 0 = indefinite (Ctrl+C to stop) |
 | `commands [--json]` | List all available commands with descriptions. `--json` returns machine-readable schema with command names, descriptions, and whether they mutate state |
 
 Element IDs come from `MAUI tree` or `MAUI query`. AutomationId-based elements use their

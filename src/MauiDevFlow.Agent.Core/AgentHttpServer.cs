@@ -19,6 +19,7 @@ public class AgentHttpServer : IDisposable
     private readonly int _port;
     private readonly Dictionary<string, Func<HttpRequest, Task<HttpResponse>>> _getRoutes = new();
     private readonly Dictionary<string, Func<HttpRequest, Task<HttpResponse>>> _postRoutes = new();
+    private readonly Dictionary<string, Func<HttpRequest, Task<HttpResponse>>> _deleteRoutes = new();
     private readonly Dictionary<string, Func<TcpClient, NetworkStream, HttpRequest, CancellationToken, Task>> _wsRoutes = new();
 
     public int Port => _port;
@@ -34,6 +35,9 @@ public class AgentHttpServer : IDisposable
 
     public void MapPost(string path, Func<HttpRequest, Task<HttpResponse>> handler)
         => _postRoutes[path.TrimEnd('/')] = handler;
+
+    public void MapDelete(string path, Func<HttpRequest, Task<HttpResponse>> handler)
+        => _deleteRoutes[path.TrimEnd('/')] = handler;
 
     public void MapWebSocket(string path, Func<TcpClient, NetworkStream, HttpRequest, CancellationToken, Task> handler)
         => _wsRoutes[path.TrimEnd('/')] = handler;
@@ -223,7 +227,9 @@ public class AgentHttpServer : IDisposable
 
     private async Task<HttpResponse> RouteRequestAsync(HttpRequest request)
     {
-        var routes = request.Method.Equals("POST", StringComparison.OrdinalIgnoreCase) ? _postRoutes : _getRoutes;
+        var routes = request.Method.Equals("POST", StringComparison.OrdinalIgnoreCase) ? _postRoutes
+            : request.Method.Equals("DELETE", StringComparison.OrdinalIgnoreCase) ? _deleteRoutes
+            : _getRoutes;
 
         // Try exact match first
         if (routes.TryGetValue(request.Path, out var handler))

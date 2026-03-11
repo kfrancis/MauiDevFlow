@@ -564,6 +564,213 @@ class Program
 
         mauiCommand.Add(networkCommand);
 
+        // ===== MAUI preferences subcommands =====
+        var prefsCommand = new Command("preferences", "Manage app preferences (key-value store)");
+
+        var prefsSharedNameOption = new Option<string?>("--sharedName", "Shared preferences container name");
+
+        var prefsListCmd = new Command("list", "List all known preference keys") { prefsSharedNameOption };
+        prefsListCmd.SetHandler(async (host, port, json, noJson, sharedName) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            var qs = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
+            await SimpleGetAsync(host, port, $"/api/preferences{qs}", isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, prefsSharedNameOption);
+        prefsCommand.Add(prefsListCmd);
+
+        var prefsGetKeyArg = new Argument<string>("key", "Preference key");
+        var prefsGetTypeOption = new Option<string>("--type", () => "string", "Value type (string|int|bool|double|float|long|datetime)");
+        var prefsGetCmd = new Command("get", "Get a preference value") { prefsGetKeyArg, prefsGetTypeOption, prefsSharedNameOption };
+        prefsGetCmd.SetHandler(async (host, port, json, noJson, key, type, sharedName) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            var qs = $"?type={Uri.EscapeDataString(type)}";
+            if (sharedName != null) qs += $"&sharedName={Uri.EscapeDataString(sharedName)}";
+            await SimpleGetAsync(host, port, $"/api/preferences/{Uri.EscapeDataString(key)}{qs}", isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, prefsGetKeyArg, prefsGetTypeOption, prefsSharedNameOption);
+        prefsCommand.Add(prefsGetCmd);
+
+        var prefsSetKeyArg = new Argument<string>("key", "Preference key");
+        var prefsSetValueArg = new Argument<string>("value", "Value to set");
+        var prefsSetTypeOption = new Option<string>("--type", () => "string", "Value type (string|int|bool|double|float|long|datetime)");
+        var prefsSetSharedNameOption = new Option<string?>("--sharedName", "Shared preferences container name");
+        var prefsSetCmd = new Command("set", "Set a preference value") { prefsSetKeyArg, prefsSetValueArg, prefsSetTypeOption, prefsSetSharedNameOption };
+        prefsSetCmd.SetHandler(async (host, port, json, noJson, key, value, type, sharedName) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            var body = new { value, type, sharedName };
+            await SimplePostAsync(host, port, $"/api/preferences/{Uri.EscapeDataString(key)}", body, isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, prefsSetKeyArg, prefsSetValueArg, prefsSetTypeOption, prefsSetSharedNameOption);
+        prefsCommand.Add(prefsSetCmd);
+
+        var prefsDeleteKeyArg = new Argument<string>("key", "Preference key to remove");
+        var prefsDeleteSharedNameOption = new Option<string?>("--sharedName", "Shared preferences container name");
+        var prefsDeleteCmd = new Command("delete", "Remove a preference") { prefsDeleteKeyArg, prefsDeleteSharedNameOption };
+        prefsDeleteCmd.SetHandler(async (host, port, json, noJson, key, sharedName) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            var qs = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
+            await SimpleDeleteAsync(host, port, $"/api/preferences/{Uri.EscapeDataString(key)}{qs}", isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, prefsDeleteKeyArg, prefsDeleteSharedNameOption);
+        prefsCommand.Add(prefsDeleteCmd);
+
+        var prefsClearSharedNameOption = new Option<string?>("--sharedName", "Shared preferences container name");
+        var prefsClearCmd = new Command("clear", "Clear all preferences") { prefsClearSharedNameOption };
+        prefsClearCmd.SetHandler(async (host, port, json, noJson, sharedName) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            var qs = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
+            await SimplePostAsync(host, port, $"/api/preferences/clear{qs}", null, isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, prefsClearSharedNameOption);
+        prefsCommand.Add(prefsClearCmd);
+
+        mauiCommand.Add(prefsCommand);
+
+        // ===== MAUI secure-storage subcommands =====
+        var secureCommand = new Command("secure-storage", "Manage secure storage (encrypted key-value store)");
+
+        var secureGetKeyArg = new Argument<string>("key", "Secure storage key");
+        var secureGetCmd = new Command("get", "Get a secure storage value") { secureGetKeyArg };
+        secureGetCmd.SetHandler(async (host, port, json, noJson, key) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            await SimpleGetAsync(host, port, $"/api/secure-storage/{Uri.EscapeDataString(key)}", isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, secureGetKeyArg);
+        secureCommand.Add(secureGetCmd);
+
+        var secureSetKeyArg = new Argument<string>("key", "Secure storage key");
+        var secureSetValueArg = new Argument<string>("value", "Value to store");
+        var secureSetCmd = new Command("set", "Set a secure storage value") { secureSetKeyArg, secureSetValueArg };
+        secureSetCmd.SetHandler(async (host, port, json, noJson, key, value) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            await SimplePostAsync(host, port, $"/api/secure-storage/{Uri.EscapeDataString(key)}", new { value }, isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, secureSetKeyArg, secureSetValueArg);
+        secureCommand.Add(secureSetCmd);
+
+        var secureDeleteKeyArg = new Argument<string>("key", "Secure storage key to remove");
+        var secureDeleteCmd = new Command("delete", "Remove a secure storage entry") { secureDeleteKeyArg };
+        secureDeleteCmd.SetHandler(async (host, port, json, noJson, key) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            await SimpleDeleteAsync(host, port, $"/api/secure-storage/{Uri.EscapeDataString(key)}", isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, secureDeleteKeyArg);
+        secureCommand.Add(secureDeleteCmd);
+
+        var secureClearCmd = new Command("clear", "Clear all secure storage entries");
+        secureClearCmd.SetHandler(async (host, port, json, noJson) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            await SimplePostAsync(host, port, "/api/secure-storage/clear", null, isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption);
+        secureCommand.Add(secureClearCmd);
+
+        mauiCommand.Add(secureCommand);
+
+        // ===== MAUI platform subcommands (read-only) =====
+        var platformCommand = new Command("platform", "Query platform features and device info");
+
+        var platformAppInfoCmd = new Command("app-info", "Get app name, version, package name, theme");
+        platformAppInfoCmd.SetHandler(async (host, port, json, noJson) =>
+            await SimpleGetAsync(host, port, "/api/platform/app-info", OutputWriter.ResolveJsonMode(json, noJson)),
+            agentHostOption, agentPortOption, jsonOption, noJsonOption);
+        platformCommand.Add(platformAppInfoCmd);
+
+        var platformDeviceInfoCmd = new Command("device-info", "Get device manufacturer, model, OS version");
+        platformDeviceInfoCmd.SetHandler(async (host, port, json, noJson) =>
+            await SimpleGetAsync(host, port, "/api/platform/device-info", OutputWriter.ResolveJsonMode(json, noJson)),
+            agentHostOption, agentPortOption, jsonOption, noJsonOption);
+        platformCommand.Add(platformDeviceInfoCmd);
+
+        var platformDisplayCmd = new Command("display", "Get screen density, size, orientation");
+        platformDisplayCmd.SetHandler(async (host, port, json, noJson) =>
+            await SimpleGetAsync(host, port, "/api/platform/device-display", OutputWriter.ResolveJsonMode(json, noJson)),
+            agentHostOption, agentPortOption, jsonOption, noJsonOption);
+        platformCommand.Add(platformDisplayCmd);
+
+        var platformBatteryCmd = new Command("battery", "Get battery level, state, power source");
+        platformBatteryCmd.SetHandler(async (host, port, json, noJson) =>
+            await SimpleGetAsync(host, port, "/api/platform/battery", OutputWriter.ResolveJsonMode(json, noJson)),
+            agentHostOption, agentPortOption, jsonOption, noJsonOption);
+        platformCommand.Add(platformBatteryCmd);
+
+        var platformConnectivityCmd = new Command("connectivity", "Get network access and connection profiles");
+        platformConnectivityCmd.SetHandler(async (host, port, json, noJson) =>
+            await SimpleGetAsync(host, port, "/api/platform/connectivity", OutputWriter.ResolveJsonMode(json, noJson)),
+            agentHostOption, agentPortOption, jsonOption, noJsonOption);
+        platformCommand.Add(platformConnectivityCmd);
+
+        var platformVersionTrackingCmd = new Command("version-tracking", "Get version history and first launch info");
+        platformVersionTrackingCmd.SetHandler(async (host, port, json, noJson) =>
+            await SimpleGetAsync(host, port, "/api/platform/version-tracking", OutputWriter.ResolveJsonMode(json, noJson)),
+            agentHostOption, agentPortOption, jsonOption, noJsonOption);
+        platformCommand.Add(platformVersionTrackingCmd);
+
+        var platformPermsNameArg = new Argument<string?>("permission", () => null, "Permission name (e.g., camera, locationWhenInUse). Omit to check all.");
+        var platformPermsCmd = new Command("permissions", "Check permission status") { platformPermsNameArg };
+        platformPermsCmd.SetHandler(async (host, port, json, noJson, permName) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            var path = permName != null
+                ? $"/api/platform/permissions/{Uri.EscapeDataString(permName)}"
+                : "/api/platform/permissions";
+            await SimpleGetAsync(host, port, path, isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, platformPermsNameArg);
+        platformCommand.Add(platformPermsCmd);
+
+        var platformGeoAccuracyOption = new Option<string>("--accuracy", () => "Medium", "Accuracy (Lowest|Low|Medium|High|Best)");
+        var platformGeoTimeoutOption = new Option<int>("--timeout", () => 10, "Timeout in seconds");
+        var platformGeoCmd = new Command("geolocation", "Get current GPS coordinates") { platformGeoAccuracyOption, platformGeoTimeoutOption };
+        platformGeoCmd.SetHandler(async (host, port, json, noJson, accuracy, timeout) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            await SimpleGetAsync(host, port, $"/api/platform/geolocation?accuracy={Uri.EscapeDataString(accuracy)}&timeout={timeout}", isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, platformGeoAccuracyOption, platformGeoTimeoutOption);
+        platformCommand.Add(platformGeoCmd);
+
+        mauiCommand.Add(platformCommand);
+
+        // ===== MAUI sensors subcommands =====
+        var sensorsCommand = new Command("sensors", "Monitor device sensors");
+
+        var sensorsListCmd = new Command("list", "List available sensors and their status");
+        sensorsListCmd.SetHandler(async (host, port, json, noJson) =>
+            await SimpleGetAsync(host, port, "/api/sensors", OutputWriter.ResolveJsonMode(json, noJson)),
+            agentHostOption, agentPortOption, jsonOption, noJsonOption);
+        sensorsCommand.Add(sensorsListCmd);
+
+        var sensorsStartSensorArg = new Argument<string>("sensor", "Sensor name (accelerometer, barometer, compass, gyroscope, magnetometer, orientation)");
+        var sensorsStartSpeedOption = new Option<string>("--speed", () => "UI", "Sensor speed (UI|Game|Fastest|Default)");
+        var sensorsStartCmd = new Command("start", "Start a sensor") { sensorsStartSensorArg, sensorsStartSpeedOption };
+        sensorsStartCmd.SetHandler(async (host, port, json, noJson, sensor, speed) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            await SimplePostAsync(host, port, $"/api/sensors/{Uri.EscapeDataString(sensor)}/start?speed={Uri.EscapeDataString(speed)}", null, isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, sensorsStartSensorArg, sensorsStartSpeedOption);
+        sensorsCommand.Add(sensorsStartCmd);
+
+        var sensorsStopSensorArg = new Argument<string>("sensor", "Sensor name");
+        var sensorsStopCmd = new Command("stop", "Stop a sensor") { sensorsStopSensorArg };
+        sensorsStopCmd.SetHandler(async (host, port, json, noJson, sensor) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            await SimplePostAsync(host, port, $"/api/sensors/{Uri.EscapeDataString(sensor)}/stop", null, isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, sensorsStopSensorArg);
+        sensorsCommand.Add(sensorsStopCmd);
+
+        var sensorsStreamSensorArg = new Argument<string>("sensor", "Sensor name to stream");
+        var sensorsStreamSpeedOption = new Option<string>("--speed", () => "UI", "Sensor speed (UI|Game|Fastest|Default)");
+        var sensorsStreamDurationOption = new Option<int>("--duration", () => 0, "Duration in seconds (0 = indefinite, Ctrl+C to stop)");
+        var sensorsStreamCmd = new Command("stream", "Stream sensor readings via WebSocket") { sensorsStreamSensorArg, sensorsStreamSpeedOption, sensorsStreamDurationOption };
+        sensorsStreamCmd.SetHandler(async (host, port, json, noJson, sensor, speed, duration) =>
+        {
+            var isJson = OutputWriter.ResolveJsonMode(json, noJson);
+            await SensorStreamAsync(host, port, sensor, speed, duration, isJson);
+        }, agentHostOption, agentPortOption, jsonOption, noJsonOption, sensorsStreamSensorArg, sensorsStreamSpeedOption, sensorsStreamDurationOption);
+        sensorsCommand.Add(sensorsStreamCmd);
+
+        mauiCommand.Add(sensorsCommand);
+
         rootCommand.Add(mauiCommand);
 
         // ===== update-skill command =====
@@ -1104,6 +1311,125 @@ class Program
         return JsonSerializer.Serialize(element, new JsonSerializerOptions { WriteIndented = true });
     }
 
+    // ===== Generic agent HTTP helpers (for preferences, platform, sensors, etc.) =====
+
+    private static async Task SimpleGetAsync(string host, int port, string path, bool json)
+    {
+        try
+        {
+            using var http = new HttpClient();
+            http.Timeout = TimeSpan.FromSeconds(30);
+            var response = await http.GetAsync($"http://{host}:{port}{path}");
+            var body = await response.Content.ReadAsStringAsync();
+            if (json || !response.IsSuccessStatusCode)
+            {
+                Console.WriteLine(body);
+            }
+            else
+            {
+                try
+                {
+                    var doc = JsonDocument.Parse(body);
+                    Console.WriteLine(JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true }));
+                }
+                catch
+                {
+                    Console.WriteLine(body);
+                }
+            }
+            if (!response.IsSuccessStatusCode) _errorOccurred = true;
+        }
+        catch (Exception ex)
+        {
+            OutputWriter.WriteError(ex.Message, json);
+            _errorOccurred = true;
+        }
+    }
+
+    private static async Task SimplePostAsync(string host, int port, string path, object? bodyObj, bool json)
+    {
+        try
+        {
+            using var http = new HttpClient();
+            http.Timeout = TimeSpan.FromSeconds(30);
+            HttpResponseMessage response;
+            if (bodyObj != null)
+            {
+                var content = new StringContent(
+                    JsonSerializer.Serialize(bodyObj),
+                    Encoding.UTF8,
+                    "application/json");
+                response = await http.PostAsync($"http://{host}:{port}{path}", content);
+            }
+            else
+            {
+                response = await http.PostAsync($"http://{host}:{port}{path}", null);
+            }
+            var body = await response.Content.ReadAsStringAsync();
+            Console.WriteLine(body);
+            if (!response.IsSuccessStatusCode) _errorOccurred = true;
+        }
+        catch (Exception ex)
+        {
+            OutputWriter.WriteError(ex.Message, json);
+            _errorOccurred = true;
+        }
+    }
+
+    private static async Task SimpleDeleteAsync(string host, int port, string path, bool json)
+    {
+        try
+        {
+            using var http = new HttpClient();
+            http.Timeout = TimeSpan.FromSeconds(30);
+            var response = await http.DeleteAsync($"http://{host}:{port}{path}");
+            var body = await response.Content.ReadAsStringAsync();
+            Console.WriteLine(body);
+            if (!response.IsSuccessStatusCode) _errorOccurred = true;
+        }
+        catch (Exception ex)
+        {
+            OutputWriter.WriteError(ex.Message, json);
+            _errorOccurred = true;
+        }
+    }
+
+    private static async Task SensorStreamAsync(string host, int port, string sensor, string speed, int duration, bool json)
+    {
+        try
+        {
+            using var client = new System.Net.WebSockets.ClientWebSocket();
+            var uri = new Uri($"ws://{host}:{port}/ws/sensors?sensor={Uri.EscapeDataString(sensor)}&speed={Uri.EscapeDataString(speed)}");
+            using var cts = duration > 0
+                ? new CancellationTokenSource(TimeSpan.FromSeconds(duration))
+                : new CancellationTokenSource();
+
+            Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+            await client.ConnectAsync(uri, cts.Token);
+            var buffer = new byte[4096];
+
+            while (!cts.Token.IsCancellationRequested && client.State == System.Net.WebSockets.WebSocketState.Open)
+            {
+                var result = await client.ReceiveAsync(buffer, cts.Token);
+                if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                    break;
+
+                var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                Console.WriteLine(message);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal exit via Ctrl+C or duration timeout
+        }
+        catch (Exception ex)
+        {
+            OutputWriter.WriteError(ex.Message, json);
+            _errorOccurred = true;
+        }
+    }
+
     // ===== Element Resolution Helper =====
 
     /// <summary>
@@ -1272,6 +1598,27 @@ class Program
         new("MAUI network list", "List recent network requests", false),
         new("MAUI network detail", "Show full network request details", false),
         new("MAUI network clear", "Clear network request buffer", true),
+        new("MAUI preferences list", "List all known preference keys", false),
+        new("MAUI preferences get", "Get a preference value by key", false),
+        new("MAUI preferences set", "Set a preference value", true),
+        new("MAUI preferences delete", "Remove a preference", true),
+        new("MAUI preferences clear", "Clear all preferences", true),
+        new("MAUI secure-storage get", "Get a secure storage value", false),
+        new("MAUI secure-storage set", "Set a secure storage value", true),
+        new("MAUI secure-storage delete", "Remove a secure storage entry", true),
+        new("MAUI secure-storage clear", "Clear all secure storage", true),
+        new("MAUI platform app-info", "Get app name, version, theme", false),
+        new("MAUI platform device-info", "Get device manufacturer, model, OS", false),
+        new("MAUI platform display", "Get screen density, size, orientation", false),
+        new("MAUI platform battery", "Get battery level, state, power source", false),
+        new("MAUI platform connectivity", "Get network access and profiles", false),
+        new("MAUI platform version-tracking", "Get version history and launch info", false),
+        new("MAUI platform permissions", "Check permission status", false),
+        new("MAUI platform geolocation", "Get current GPS coordinates", false),
+        new("MAUI sensors list", "List available sensors and status", false),
+        new("MAUI sensors start", "Start a device sensor", true),
+        new("MAUI sensors stop", "Stop a device sensor", true),
+        new("MAUI sensors stream", "Stream sensor readings via WebSocket", false),
         new("cdp webviews", "List available CDP WebViews", false),
         new("cdp status", "Check CDP connection status", false),
         new("cdp Browser getVersion", "Get browser version", false),

@@ -29,7 +29,7 @@ Agent architecture:
 ```
 
 - **Single port** (default 9223, configurable via `.mauidevflow` file) serves both native MAUI commands, CDP, and WebSocket connections
-- **WebSocket support** — `/ws/network` streams captured HTTP requests in real-time; CDP still uses HTTP POST via Chobitsu
+- **WebSocket support** — `/ws/network` streams captured HTTP requests in real-time; `/ws/logs` streams log entries; `/ws/sensors?sensor=<name>` streams device sensor readings; CDP still uses HTTP POST via Chobitsu
 - **Multi-WebView CDP** — Each `BlazorWebView` registers independently with the agent. CDP commands accept `?webview=<id>` to target by index, AutomationId, or element ID. The `BlazorWebViewDebugServiceBase` manages per-WebView state via inner `WebViewBridge` instances
 - **Blazor→Agent wiring** uses reflection to avoid a direct package dependency between the two NuGet packages
 
@@ -111,6 +111,16 @@ The CLI command `maui-devflow update-skill` downloads the latest skill files fro
 - **WebSocket**: `/ws/network` sends replay of buffered history on connect, then streams new entries live
 - **CLI**: `MAUI network` (live TUI), `MAUI network --json` (JSONL streaming), `MAUI network list`, `MAUI network detail`, `MAUI network clear`
 - **Apple namespace conflict**: Agent.Core's `Network` namespace conflicts with Apple's `Network` framework — use fully-qualified `MauiDevFlow.Agent.Core.Network.DevFlowHttpHandler` in AgentServiceExtensions.cs
+
+## Platform Features (Preferences, SecureStorage, Device Info, Sensors)
+
+- **Preferences CRUD**: `/api/preferences` endpoints for list/get/set/delete/clear. MAUI's `Preferences` API has no "list all" method — the agent tracks known keys via an internal registry key (`__devflow_known_keys`) stored as a unit-separator-delimited string. Only keys set via the agent are tracked.
+- **SecureStorage CRUD**: `/api/secure-storage` endpoints for get/set/delete/clear via `SecureStorage` static API.
+- **Platform Info**: Read-only endpoints under `/api/platform/` for app-info, device-info, device-display, battery, connectivity, version-tracking, permissions, geolocation. All use MAUI's static API classes (`AppInfo.Current`, `DeviceInfo.Current`, `DeviceDisplay.MainDisplayInfo`, `Battery.Default`, `Connectivity.Current`, `VersionTracking.Default`, `Geolocation.GetLocationAsync()`).
+- **Permissions**: The agent maintains a `KnownPermissions` dictionary mapping friendly names to `Permissions.BasePermission` factories. Check one or all permissions via `/api/platform/permissions[/{name}]`.
+- **Sensor Streaming**: `SensorManager` class manages sensor lifecycle (start/stop) and WebSocket broadcasting. Supports: accelerometer, barometer, compass, gyroscope, magnetometer, orientation. WebSocket at `/ws/sensors?sensor=<name>` auto-starts the sensor on connect and broadcasts JSON readings to all subscribers. REST endpoints for list/start/stop at `/api/sensors`.
+- **DELETE routes**: `AgentHttpServer` supports DELETE method via `_deleteRoutes` dictionary and `MapDelete()`, used by preferences and secure-storage delete endpoints.
+- **CLI**: `MAUI preferences`, `MAUI secure-storage`, `MAUI platform`, `MAUI sensors` command groups with full subcommands.
 
 ## Windows Support
 
