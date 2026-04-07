@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet package:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Bash(dotnet pack:*)",
+      "Bash(unzip -l D:/Github/MauiDevFlow/artifacts/Redth.MauiDevFlow.Agent.0.23.1.nupkg)",
+      "Bash(unzip -l D:/Github/MauiDevFlow/artifacts/Redth.MauiDevFlow.Agent.Core.0.23.1.nupkg)",
+      "Bash(unzip -l D:/Github/MauiDevFlow/artifacts/Redth.MauiDevFlow.Logging.0.23.1.nupkg)"
+    ]
+  }
+}

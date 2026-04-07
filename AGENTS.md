@@ -23,8 +23,8 @@ CLI (dotnet global tool) ──HTTP──▶ Agent (runs inside MAUI app, single
                                      └── /api/cdp/webviews ──▶ List registered WebViews
 
 Agent architecture:
-  Agent.Core (net10.0) ← platform-agnostic HTTP server, tree walker, logging
-    ├── Agent (MAUI TFMs) ← iOS, Android, macCatalyst, Windows platform code
+  Agent.Core (net9.0;net10.0) ← platform-agnostic HTTP server, tree walker, logging
+    ├── Agent (net9.0+net10.0 MAUI TFMs) ← iOS, Android, macCatalyst, Windows platform code
     └── Agent.Gtk (net10.0) ← GTK/Linux platform code (GirCore.Gtk-4.0)
 ```
 
@@ -73,7 +73,7 @@ The solution filter `ci.slnf` excludes `SampleMauiApp` (requires MAUI workloads)
 
 Six packages are published on release:
 - `Redth.MauiDevFlow.Agent` — In-app agent (MAUI library, references Agent.Core)
-- `Redth.MauiDevFlow.Agent.Core` — Platform-agnostic agent core (net10.0 library)
+- `Redth.MauiDevFlow.Agent.Core` — Platform-agnostic agent core (net9.0;net10.0 library)
 - `Redth.MauiDevFlow.Agent.Gtk` — GTK/Linux agent (net10.0 library, references Agent.Core + GirCore)
 - `Redth.MauiDevFlow.Blazor` — Blazor CDP bridge (MAUI Razor library)
 - `Redth.MauiDevFlow.Blazor.Gtk` — Blazor CDP bridge for WebKitGTK (net10.0 library)
@@ -132,7 +132,7 @@ The CLI command `maui-devflow update-skill` downloads the latest skill files fro
 
 ## Linux/GTK Support
 
-- **Agent.Core** (`MauiDevFlow.Agent.Core`): Platform-agnostic `net10.0` library containing HTTP server, visual tree walker base, logging, DTOs. Shared by both `Agent` (MAUI TFMs) and `Agent.Gtk` (GTK/Linux).
+- **Agent.Core** (`MauiDevFlow.Agent.Core`): Platform-agnostic `net9.0;net10.0` library containing HTTP server, visual tree walker base, logging, DTOs. Shared by both `Agent` (MAUI TFMs) and `Agent.Gtk` (GTK/Linux).
 - **Agent.Gtk** (`MauiDevFlow.Agent.Gtk`): GTK-specific agent using `GirCore.Gtk-4.0`. Native tap via `Gtk.Button.Activate()` / `Gtk.Widget.Activate()`. Native info collects GTK widget name, tooltip, sensitive, visible, type. Screenshots use `Gtk.WidgetPaintable` → `Gdk.Texture.SaveToPng()` fallback.
 - **Blazor CDP GTK** (`MauiDevFlow.Blazor.Gtk`): WebKitGTK-based CDP bridge using `GirCore.WebKit-6.0`. JS evaluation via `WebView.EvaluateJavascriptAsync()`. Same Chobitsu injection and CDP polling pattern as other platforms.
 - **Driver**: `LinuxAppDriver` extends `AppDriverBase`. Direct localhost connection (no port forwarding). Dialog detection via agent tree inspection. Key simulation via `xdotool`. Process management via `pgrep`.

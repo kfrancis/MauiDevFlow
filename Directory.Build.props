@@ -3,12 +3,15 @@
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Default versions (net10); overridden for net9 TFMs below -->
     <MauiVersion>10.0.31</MauiVersion>
+    <MicrosoftExtensionsHttpVersion>10.0.0-preview.3.25171.5</MicrosoftExtensionsHttpVersion>
+    <MicrosoftExtensionsLoggingAbstractionsVersion>10.0.0-preview.1.25080.5</MicrosoftExtensionsLoggingAbstractionsVersion>
   </PropertyGroup>
 
   <!-- Common NuGet package metadata -->
   <PropertyGroup>
-    <Version>0.23.1</Version>
+    <Version>0.23.3</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>MauiDevFlow Contributors</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -32,6 +35,13 @@
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'">
     <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
     <DefineConstants>$(DefineConstants);MACOS</DefineConstants>
+  </PropertyGroup>
+
+  <!-- .NET 9 version overrides -->
+  <PropertyGroup Condition="$(TargetFramework.StartsWith('net9.0'))">
+    <MauiVersion>9.0.0</MauiVersion>
+    <MicrosoftExtensionsHttpVersion>9.0.0</MicrosoftExtensionsHttpVersion>
+    <MicrosoftExtensionsLoggingAbstractionsVersion>9.0.0</MicrosoftExtensionsLoggingAbstractionsVersion>
   </PropertyGroup>
 
 </Project>
